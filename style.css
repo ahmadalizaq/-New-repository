@@ -843,3 +843,4 @@ a { color: inherit; }
 @media (max-width: 620px) {
   .admin-table { min-width: 560px; }
 }
+#tip-overlay, #levelup-overlay, #ban-overlay { z-index: 210; }
