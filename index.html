@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>FEEL — افهم. تواصل. انمُ.</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+</head>
+<body>
+
+<div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+<!-- LEVEL UP -->
+<div id="levelup-overlay" class="overlay hidden">
+  <div class="levelup-card">
+    <div class="levelup-emoji" id="levelup-emoji">❤️</div>
+    <div class="levelup-eyebrow">ترقية مستوى</div>
+    <div class="levelup-message" id="levelup-message">لقد تطورت في الحب.</div>
+    <div class="levelup-level" id="levelup-level">المستوى 2</div>
+    <button class="btn btn-primary" id="levelup-close">متابعة</button>
+  </div>
+</div>
+
+<!-- TIP MODAL -->
+<div id="tip-overlay" class="overlay hidden">
+  <div class="modal-card">
+    <button class="modal-close" id="tip-close" aria-label="إغلاق">✕</button>
+    <h3 class="modal-title">أرسل تقدير (Tip)</h3>
+    <p class="modal-sub">اعترف بما أضافته هذه الإجابة لك.</p>
+    <div class="tip-grid" id="tip-grid">
+      <button class="tip-option" data-tip="small"><span class="tip-icon">💡</span><span class="tip-name">مفيدة</span><span class="tip-xp">‎+10 XP</span></button>
+      <button class="tip-option" data-tip="good"><span class="tip-icon">❤️</span><span class="tip-name">مؤثرة</span><span class="tip-xp">‎+25 XP</span></button>
+      <button class="tip-option" data-tip="great"><span class="tip-icon">✨</span><span class="tip-name">قوية</span><span class="tip-xp">‎+50 XP</span></button>
+      <button class="tip-option" data-tip="epic"><span class="tip-icon">🏆</span><span class="tip-name">غيّرت حياتي</span><span class="tip-xp">‎+100 XP</span></button>
+    </div>
+  </div>
+</div>
+
+<!-- ASK MODAL -->
+<div id="ask-overlay" class="overlay hidden">
+  <div class="modal-card">
+    <button class="modal-close" id="ask-close" aria-label="إغلاق">✕</button>
+    <h3 class="modal-title">اسأل شيئًا</h3>
+    <p class="modal-sub">ما الذي تريد أن تفهمه؟</p>
+    <form id="ask-form">
+      <textarea id="ask-textarea" class="ask-textarea" maxlength="280" placeholder="اكتب السؤال الذي ما زال يشغل بالك..." required></textarea>
+      <div class="ask-row">
+        <label for="ask-feeling" class="ask-label">الشعور</label>
+        <select id="ask-feeling" class="ask-select"></select>
+      </div>
+      <p class="field-error hidden" id="ask-error"></p>
+      <button type="submit" class="btn btn-primary btn-block" id="ask-submit-btn">نشر السؤال</button>
+    </form>
+  </div>
+</div>
+
+<!-- QUESTION DETAIL -->
+<div id="question-overlay" class="overlay hidden">
+  <div class="modal-card modal-wide">
+    <button class="modal-close" id="question-close" aria-label="إغلاق">✕</button>
+    <div id="question-detail-content"></div>
+  </div>
+</div>
+
+<!-- BAN MODAL (admin) -->
+<div id="ban-overlay" class="overlay hidden">
+  <div class="modal-card">
+    <button class="modal-close" id="ban-close" aria-label="إغلاق">✕</button>
+    <h3 class="modal-title">حظر حساب</h3>
+    <p class="modal-sub" id="ban-target-name"></p>
+    <form id="ban-form">
+      <textarea id="ban-reason" class="ask-textarea" placeholder="سبب الحظر (بيظهر للمستخدم)..." maxlength="200"></textarea>
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top:0.9rem; background:#C0392B;">تأكيد الحظر</button>
+    </form>
+  </div>
+</div>
+
+<!-- ============ AUTH VIEW (Login / Signup) ============ -->
+<section id="view-auth" class="view view-login">
+  <button class="theme-toggle theme-toggle-floating" id="theme-toggle-auth" aria-label="تبديل الوضع الليلي">🌙</button>
+  <div class="login-wrap">
+    <div class="login-brand">
+      <div class="login-logo">FEEL</div>
+      <div class="login-tagline">افهم. تواصل. انمُ.</div>
+    </div>
+
+    <div class="login-card">
+      <div class="auth-tabs">
+        <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
+        <button class="auth-tab" data-tab="signup">حساب جديد</button>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <form id="login-form" class="auth-form-panel">
+        <div class="login-field">
+          <label for="login-username">اسم المستخدم أو الإيميل</label>
+          <input type="text" id="login-username" autocomplete="username">
+        </div>
+        <div class="login-field">
+          <label for="login-password">كلمة المرور</label>
+          <input type="password" id="login-password" autocomplete="current-password" placeholder="••••">
+        </div>
+        <p class="field-error hidden" id="login-error"></p>
+        <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">ادخل إلى FEEL</button>
+      </form>
+
+      <!-- SIGNUP FORM -->
+      <form id="signup-form" class="auth-form-panel hidden">
+        <div class="login-field">
+          <label for="signup-username">اسم المستخدم</label>
+          <input type="text" id="signup-username" autocomplete="username" placeholder="بدون مسافات، بالإنجليزي">
+        </div>
+        <div class="login-field">
+          <label for="signup-displayname">الاسم الظاهر</label>
+          <input type="text" id="signup-displayname" autocomplete="name">
+        </div>
+        <div class="login-field">
+          <label for="signup-email">الإيميل</label>
+          <input type="email" id="signup-email" autocomplete="email">
+        </div>
+        <div class="login-field">
+          <label for="signup-password">كلمة المرور</label>
+          <input type="password" id="signup-password" autocomplete="new-password" placeholder="6 أحرف على الأقل">
+        </div>
+        <div class="login-field">
+          <label>اختر أفاتار</label>
+          <div class="avatar-picker" id="avatar-picker"></div>
+        </div>
+        <p class="field-error hidden" id="signup-error"></p>
+        <p class="field-success hidden" id="signup-success"></p>
+        <button type="submit" class="btn btn-primary btn-block" id="signup-submit-btn">إنشاء الحساب</button>
+      </form>
+    </div>
+
+    <p class="login-note">أنت لا ترتقي بمعرفتك أكثر. أنت ترتقي بفهمك أكثر.</p>
+  </div>
+</section>
+
+<!-- ============ APP SHELL ============ -->
+<div id="app-shell" class="app-shell hidden">
+  <header class="navbar">
+    <div class="navbar-inner">
+      <div class="navbar-logo" data-nav="home">FEEL</div>
+      <nav class="navbar-links">
+        <button class="nav-link" data-nav="home">الرئيسية</button>
+        <button class="nav-link" data-nav="feelings">المشاعر</button>
+        <button class="nav-link" data-nav="questions">الأسئلة</button>
+        <button class="nav-link" data-nav="posts">الاقتباسات</button>
+        <button class="nav-link" data-nav="profile">ملفي الشخصي</button>
+        <button class="nav-link" data-nav="notifications">
+          الإشعارات <span class="nav-badge hidden" id="notif-badge">0</span>
+        </button>
+        <button class="nav-link hidden" data-nav="admin" id="admin-nav-link">لوحة الأدمن</button>
+      </nav>
+      <div class="navbar-actions">
+        <button class="theme-toggle" id="theme-toggle-app" aria-label="تبديل الوضع الليلي">🌙</button>
+        <button class="btn btn-ghost" id="logout-btn">تسجيل الخروج</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="main-content" id="main-content"></main>
+
+  <nav class="bottom-nav">
+    <button class="bottom-nav-btn" data-nav="home" aria-label="الرئيسية"><span class="bn-icon">🏠</span><span class="bn-label">الرئيسية</span></button>
+    <button class="bottom-nav-btn" data-nav="questions" aria-label="الأسئلة"><span class="bn-icon">❓</span><span class="bn-label">الأسئلة</span></button>
+    <button class="bottom-nav-btn bottom-nav-ask" data-action="ask" aria-label="اسأل شيئًا"><span class="bn-icon">✎</span></button>
+    <button class="bottom-nav-btn" data-nav="posts" aria-label="الاقتباسات"><span class="bn-icon">💬</span><span class="bn-label">اقتباسات</span></button>
+    <button class="bottom-nav-btn" data-nav="notifications" aria-label="الإشعارات"><span class="bn-icon">🔔</span><span class="bn-label">إشعارات</span><span class="nav-badge nav-badge-mobile hidden" id="notif-badge-mobile">0</span></button>
+    <button class="bottom-nav-btn" data-nav="profile" aria-label="الملف الشخصي"><span class="bn-icon">🙂</span><span class="bn-label">ملفي</span></button>
+  </nav>
+</div>
+
+<script src="supabase-client.js"></script>
+<script src="config.js"></script>
+<script src="db.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
