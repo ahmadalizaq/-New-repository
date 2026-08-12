@@ -71,7 +71,7 @@ const DB = {
   /* ---------------- Questions ---------------- */
   async fetchQuestions({ feelingId = null, authorId = null } = {}) {
     let q = sb.from('questions')
-      .select('*, author:profiles(id, username, display_name, avatar_emoji, avatar_color)')
+      .select('*, author:profiles!questions_author_id_fkey(id, username, display_name, avatar_emoji, avatar_color)')
       .order('created_at', { ascending: false });
     if (feelingId && feelingId !== 'all') q = q.eq('feeling_id', feelingId);
     if (authorId) q = q.eq('author_id', authorId);
@@ -82,7 +82,7 @@ const DB = {
 
   async fetchQuestionById(id) {
     const { data, error } = await sb.from('questions')
-      .select('*, author:profiles(id, username, display_name, avatar_emoji, avatar_color)')
+      .select('*, author:profiles!questions_author_id_fkey(id, username, display_name, avatar_emoji, avatar_color)')
       .eq('id', id).single();
     if (error) return null;
     return data;
@@ -117,7 +117,7 @@ const DB = {
   /* ---------------- Answers ---------------- */
   async fetchAnswersForQuestion(questionId) {
     const { data, error } = await sb.from('answers')
-      .select('*, author:profiles(id, username, display_name, avatar_emoji, avatar_color), tips(tip_type, xp, from_user_id, created_at)')
+      .select('*, author:profiles!answers_author_id_fkey(id, username, display_name, avatar_emoji, avatar_color), tips(tip_type, xp, from_user_id, created_at)')
       .eq('question_id', questionId)
       .order('likes_count', { ascending: false });
     if (error) { console.error(error); return []; }
@@ -149,7 +149,7 @@ const DB = {
   /* ---------------- Posts (الكوتيشن) ---------------- */
   async fetchPosts() {
     const { data, error } = await sb.from('posts')
-      .select('*, author:profiles(id, username, display_name, avatar_emoji, avatar_color)')
+      .select('*, author:profiles!posts_author_id_fkey(id, username, display_name, avatar_emoji, avatar_color)')
       .order('created_at', { ascending: false });
     if (error) { console.error(error); return []; }
     return data;
@@ -173,7 +173,7 @@ const DB = {
 
   async fetchComments(postId) {
     const { data, error } = await sb.from('post_comments')
-      .select('*, author:profiles(id, username, display_name, avatar_emoji, avatar_color)')
+      .select('*, author:profiles!post_comments_author_id_fkey(id, username, display_name, avatar_emoji, avatar_color)')
       .eq('post_id', postId)
       .order('created_at', { ascending: true });
     if (error) return [];
