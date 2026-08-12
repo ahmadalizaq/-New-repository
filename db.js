@@ -209,4 +209,43 @@ const DB = {
   async adminSetBan(userId, banned, reason) {
     return await sb.rpc('admin_set_ban', { p_user_id: userId, p_banned: banned, p_reason: reason || null });
   },
+
+  /* ---------------- Delete (owner or admin — RLS enforces this server-side) ---------------- */
+  async deleteQuestion(id) { return await sb.from('questions').delete().eq('id', id); },
+  async deleteAnswer(id) { return await sb.from('answers').delete().eq('id', id); },
+  async deletePost(id) { return await sb.from('posts').delete().eq('id', id); },
+  async deleteComment(id) { return await sb.from('post_comments').delete().eq('id', id); },
+
+  /* ---------------- Realtime ---------------- */
+  subscribeToNotifications(userId, onInsert) {
+    return sb.channel('notifications-' + userId)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${userId}` }, payload => onInsert(payload.new))
+      .subscribe();
+  },
+  subscribeToQuestions(onChange) {
+    return sb.channel('questions-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'questions' }, onChange)
+      .subscribe();
+  },
+  subscribeToAnswers(questionId, onChange) {
+    return sb.channel('answers-' + questionId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'answers', filter: `question_id=eq.${questionId}` }, onChange)
+      .subscribe();
+  },
+  subscribeToPosts(onChange) {
+    return sb.channel('posts-feed')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'posts' }, onChange)
+      .subscribe();
+  },
+  subscribeToComments(postId, onChange) {
+    return sb.channel('comments-' + postId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'post_comments', filter: `post_id=eq.${postId}` }, onChange)
+      .subscribe();
+  },
+  subscribeToMyXp(userId, onChange) {
+    return sb.channel('xp-' + userId)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_feeling_xp', filter: `user_id=eq.${userId}` }, onChange)
+      .subscribe();
+  },
+  unsubscribe(channel) { if (channel) sb.removeChannel(channel); },
 };

@@ -18,6 +18,7 @@ const AppState = {
   likedAnswerIds: new Set(),
   likedPostIds: new Set(),
   selectedAvatar: null,
+  channels: { notifications: null, questions: null, posts: null, answers: null, comments: null, xp: null },
 };
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -46,6 +47,57 @@ async function enterApp() {
   document.getElementById('app-shell').classList.remove('hidden');
   document.getElementById('admin-nav-link').classList.toggle('hidden', !(AppState.profile && AppState.profile.is_admin));
   navigateTo('home');
+  setupGlobalRealtime();
+}
+
+/* ============================================================
+   REALTIME — تحديث مباشر بدون Refresh
+   ============================================================ */
+function setupGlobalRealtime() {
+  teardownGlobalRealtime();
+  if (!AppState.profile) return;
+
+  AppState.channels.notifications = DB.subscribeToNotifications(AppState.profile.id, notif => {
+    refreshNotifBadge();
+    showToast(notif.icon, notif.text);
+  });
+
+  AppState.channels.questions = DB.subscribeToQuestions(debounce(() => {
+    if (['home', 'feelings', 'feeling-detail', 'questions'].includes(AppState.route)) renderMain();
+  }, 400));
+
+  AppState.channels.posts = DB.subscribeToPosts(debounce(() => {
+    if (AppState.route === 'posts') renderMain();
+  }, 400));
+
+  AppState.channels.xp = DB.subscribeToMyXp(AppState.profile.id, payload => {
+    const row = payload.new;
+    if (!row) return;
+    const feelingId = row.feeling_id;
+    const newXp = row.xp;
+    const oldXp = AppState.xpMap[feelingId] || 0;
+    if (newXp === oldXp) return;
+    const beforeLevel = getLevelInfo(oldXp).level;
+    const afterLevel = getLevelInfo(newXp).level;
+    AppState.xpMap[feelingId] = newXp;
+
+    if (afterLevel > beforeLevel) {
+      DB.notify(AppState.profile.id, '✨', `وصلت للمستوى ${afterLevel} في ${FEELING_MAP[feelingId].name}.`);
+      showLevelUp(feelingId, afterLevel);
+    }
+    if (['home', 'feelings', 'feeling-detail', 'profile'].includes(AppState.route)) renderMain();
+  });
+}
+
+function teardownGlobalRealtime() {
+  Object.keys(AppState.channels).forEach(key => {
+    if (AppState.channels[key]) { DB.unsubscribe(AppState.channels[key]); AppState.channels[key] = null; }
+  });
+}
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
 }
 
 async function loadCurrentUserContext() {
@@ -159,9 +211,43 @@ function buildAvatarPicker() {
 }
 
 async function logout() {
+  teardownGlobalRealtime();
   await DB.signOut();
   AppState.profile = null;
   showAuth();
+}
+
+/* ============================================================
+   DELETE HANDLERS (owner or admin — RLS enforces this again server-side)
+   ============================================================ */
+async function deleteQuestionHandler(qid) {
+  if (!confirm('متأكد إنك بدك تحذف هالسؤال؟ هالإجراء ما بينرجع.')) return;
+  const { error } = await DB.deleteQuestion(qid);
+  if (error) { showToast('🚫', 'ما قدرنا نحذف السؤال.'); return; }
+  showToast('🗑', 'تم حذف السؤال.');
+  if (AppState.activeQuestionId === qid) closeQuestionDetail();
+  renderMain();
+}
+async function deleteAnswerHandler(aid) {
+  if (!confirm('متأكد إنك بدك تحذف هالإجابة؟ هالإجراء ما بينرجع.')) return;
+  const { error } = await DB.deleteAnswer(aid);
+  if (error) { showToast('🚫', 'ما قدرنا نحذف الإجابة.'); return; }
+  showToast('🗑', 'تم حذف الإجابة.');
+  if (AppState.activeQuestionId) renderQuestionDetail();
+}
+async function deletePostHandler(pid) {
+  if (!confirm('متأكد إنك بدك تحذف هالبوست؟ هالإجراء ما بينرجع.')) return;
+  const { error } = await DB.deletePost(pid);
+  if (error) { showToast('🚫', 'ما قدرنا نحذف البوست.'); return; }
+  showToast('🗑', 'تم حذف البوست.');
+  renderMain();
+}
+async function deleteCommentHandler(cid, pid) {
+  if (!confirm('متأكد إنك بدك تحذف هالتعليق؟')) return;
+  const { error } = await DB.deleteComment(cid);
+  if (error) { showToast('🚫', 'ما قدرنا نحذف التعليق.'); return; }
+  showToast('🗑', 'تم حذف التعليق.');
+  renderComments(pid);
 }
 
 /* ============================================================
@@ -379,6 +465,7 @@ function questionCardHtml(q) {
   const author = q.author;
   const liked = AppState.likedQuestionIds.has(q.id);
   const isSeen = AppState.seenQuestionIds.has(q.id);
+  const canDelete = AppState.profile && (AppState.profile.is_admin || q.author_id === AppState.profile.id);
   return `
     <article class="question-card ${isSeen ? 'seen' : ''}" data-action="open-question" data-qid="${q.id}">
       <div class="q-head">
@@ -388,6 +475,8 @@ function questionCardHtml(q) {
           <div class="q-meta"><span>${timeAgo(q.created_at)}</span></div>
         </div>
         ${!isSeen ? '<span class="new-dot" title="لسا ما شفتها"></span>' : ''}
+        <span class="q-spacer"></span>
+        ${canDelete ? `<button class="delete-btn" data-action="delete-question" data-qid="${q.id}" title="حذف">🗑</button>` : ''}
       </div>
       <p class="q-text">${escapeHtml(q.text)}</p>
       <div class="q-footer">
@@ -418,10 +507,16 @@ async function openQuestionDetail(qid) {
   await DB.markQuestionSeen(qid, AppState.profile.id);
   AppState.seenQuestionIds.add(qid);
   await renderQuestionDetail();
+
+  if (AppState.channels.answers) DB.unsubscribe(AppState.channels.answers);
+  AppState.channels.answers = DB.subscribeToAnswers(qid, debounce(() => {
+    if (AppState.activeQuestionId === qid) renderQuestionDetail();
+  }, 400));
 }
 function closeQuestionDetail() {
   document.getElementById('question-overlay').classList.add('hidden');
   AppState.activeQuestionId = null;
+  if (AppState.channels.answers) { DB.unsubscribe(AppState.channels.answers); AppState.channels.answers = null; }
 }
 
 async function renderQuestionDetail() {
@@ -431,12 +526,15 @@ async function renderQuestionDetail() {
   const feeling = FEELING_MAP[q.feeling_id];
   const answers = await DB.fetchAnswersForQuestion(q.id);
   const liked = AppState.likedQuestionIds.has(q.id);
+  const canDeleteQ = AppState.profile && (AppState.profile.is_admin || q.author_id === AppState.profile.id);
 
   container.innerHTML = `
     <div class="qd-question">
       <div class="q-head">
         <div class="avatar avatar-sm" style="background:${q.author ? q.author.avatar_color : '#ccc'}22;">${q.author ? q.author.avatar_emoji : '🙂'}</div>
         <div><div class="q-author-name">${q.author ? escapeHtml(q.author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(q.created_at)}</div></div>
+        <span class="q-spacer"></span>
+        ${canDeleteQ ? `<button class="delete-btn" data-action="delete-question" data-qid="${q.id}" title="حذف">🗑</button>` : ''}
       </div>
       <p class="q-text">${escapeHtml(q.text)}</p>
       <div class="q-footer">
@@ -461,11 +559,14 @@ function answerCardHtml(a, q) {
   const isOwnQuestion = AppState.profile && q.author_id === AppState.profile.id;
   const isOwnAnswer = AppState.profile && a.author_id === AppState.profile.id;
   const tip = a.tips && a.tips[0];
+  const canDeleteA = AppState.profile && (AppState.profile.is_admin || isOwnAnswer);
   return `
     <div class="answer-card">
       <div class="q-head">
         <div class="avatar avatar-sm" style="background:${author ? author.avatar_color : '#ccc'}22;">${author ? author.avatar_emoji : '🙂'}</div>
         <div><div class="q-author-name">${author ? escapeHtml(author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(a.created_at)}</div></div>
+        <span class="q-spacer"></span>
+        ${canDeleteA ? `<button class="delete-btn" data-action="delete-answer" data-aid="${a.id}" title="حذف">🗑</button>` : ''}
       </div>
       <p class="answer-text">${escapeHtml(a.text)}</p>
       <div class="q-footer">
@@ -555,12 +656,6 @@ async function sendTip(tipType) {
   showFloatingXp(tipInfo.xp);
   showToast(tipInfo.icon, `تم إرسال Tip — +${tipInfo.xp} XP.`);
 
-  const beforeLevel = getLevelInfo(data.old_xp).level;
-  const afterLevel = getLevelInfo(data.new_xp).level;
-  if (afterLevel > beforeLevel) {
-    // ترقية مستوى تخص المستخدم الآخر — بس لو حصل بحسابي بيصير عبر منطق مشابه بالتفاعلات الشخصية
-  }
-
   await renderQuestionDetail();
   refreshFeedViews();
 }
@@ -625,11 +720,14 @@ async function renderPostsPage() {
 function postCardHtml(p) {
   const author = p.author;
   const liked = AppState.likedPostIds.has(p.id);
+  const canDeleteP = AppState.profile && (AppState.profile.is_admin || p.author_id === AppState.profile.id);
   return `
     <article class="post-card" data-pid="${p.id}">
       <div class="q-head">
         <div class="avatar avatar-sm" style="background:${author ? author.avatar_color : '#ccc'}22;">${author ? author.avatar_emoji : '🙂'}</div>
         <div><div class="q-author-name">${author ? escapeHtml(author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(p.created_at)}</div></div>
+        <span class="q-spacer"></span>
+        ${canDeleteP ? `<button class="delete-btn" data-action="delete-post" data-pid="${p.id}" title="حذف">🗑</button>` : ''}
       </div>
       <p class="q-text">${escapeHtml(p.text)}</p>
       <div class="q-footer">
@@ -646,17 +744,28 @@ async function togglePostComments(pid) {
   if (!container) return;
   const willShow = container.classList.contains('hidden');
   container.classList.toggle('hidden');
+  if (AppState.channels.comments) { DB.unsubscribe(AppState.channels.comments); AppState.channels.comments = null; }
   if (!willShow) return;
-  container.innerHTML = `<div class="loading-spinner-sm">جاري التحميل...</div>`;
+  await renderComments(pid);
+  AppState.channels.comments = DB.subscribeToComments(pid, debounce(() => renderComments(pid), 400));
+}
+
+async function renderComments(pid) {
+  const container = document.getElementById(`comments-${pid}`);
+  if (!container || container.classList.contains('hidden')) return;
   const comments = await DB.fetchComments(pid);
+  const canModerate = AppState.profile && AppState.profile.is_admin;
   container.innerHTML = `
     <div class="comment-list">
-      ${comments.map(c => `
+      ${comments.map(c => {
+        const canDelete = canModerate || (AppState.profile && c.author_id === AppState.profile.id);
+        return `
         <div class="comment-item">
           <div class="avatar avatar-sm" style="background:${c.author ? c.author.avatar_color : '#ccc'}22;">${c.author ? c.author.avatar_emoji : '🙂'}</div>
-          <div><div class="comment-author">${c.author ? escapeHtml(c.author.display_name) : 'مستخدم محذوف'}</div><div class="comment-text">${escapeHtml(c.text)}</div></div>
+          <div style="flex:1;"><div class="comment-author">${c.author ? escapeHtml(c.author.display_name) : 'مستخدم محذوف'}</div><div class="comment-text">${escapeHtml(c.text)}</div></div>
+          ${canDelete ? `<button class="delete-btn" data-action="delete-comment" data-cid="${c.id}" data-pid="${pid}" title="حذف">🗑</button>` : ''}
         </div>
-      `).join('') || '<p style="color:var(--text-faint); font-size:0.85rem;">ولا تعليق لسا.</p>'}
+      `;}).join('') || '<p style="color:var(--text-faint); font-size:0.85rem;">ولا تعليق لسا.</p>'}
     </div>
     <form class="comment-form" data-pid="${pid}">
       <input type="text" class="comment-input" placeholder="اكتب تعليق..." maxlength="300">
@@ -892,6 +1001,10 @@ function bindStaticEvents() {
       case 'toggle-comments': togglePostComments(actionEl.dataset.pid); break;
       case 'admin-ban': openBanModal(actionEl.dataset.uid, actionEl.dataset.name); break;
       case 'admin-unban': unbanUser(actionEl.dataset.uid); break;
+      case 'delete-question': e.stopPropagation(); deleteQuestionHandler(actionEl.dataset.qid); break;
+      case 'delete-answer': e.stopPropagation(); deleteAnswerHandler(actionEl.dataset.aid); break;
+      case 'delete-post': e.stopPropagation(); deletePostHandler(actionEl.dataset.pid); break;
+      case 'delete-comment': e.stopPropagation(); deleteCommentHandler(actionEl.dataset.cid, actionEl.dataset.pid); break;
     }
   });
 
