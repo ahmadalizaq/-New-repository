@@ -843,4 +843,39 @@ a { color: inherit; }
 @media (max-width: 620px) {
   .admin-table { min-width: 560px; }
 }
-#tip-overlay, #levelup-overlay, #ban-overlay { z-index: 210; }
+
+/* ---------- Delete button ---------- */
+.delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-faint);
+  cursor: pointer;
+  font-size: 0.95rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: color .15s ease, background .15s ease;
+}
+.delete-btn:hover { color: #C0392B; background: rgba(192,57,43,0.1); }
+.comment-item { display: flex; align-items: flex-start; gap: 0.5rem; }
+
+/* ---------- Saved accounts / account switcher ---------- */
+.saved-accounts-box { margin-bottom: 1rem; }
+.saved-accounts-title { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.6rem; }
+.saved-accounts-list { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
+.saved-account-chip {
+  display: flex; align-items: center; gap: 0.7rem;
+  border: 1px solid var(--border); background: var(--bg-sunken);
+  border-radius: var(--radius-md); padding: 0.65rem 0.8rem;
+  cursor: pointer; text-align: right; width: 100%;
+  transition: border-color .15s ease, background .15s ease;
+}
+.saved-account-chip:hover { border-color: var(--brand-3); background: var(--bg-elevated); }
+.saved-account-name { flex: 1; font-size: 0.88rem; font-weight: 700; line-height: 1.5; }
+.saved-account-username { font-size: 0.76rem; color: var(--text-faint); font-weight: 500; }
+.saved-account-forget {
+  color: var(--text-faint); font-size: 0.85rem; padding: 0.2rem 0.4rem; border-radius: 6px; flex-shrink: 0;
+}
+.saved-account-forget:hover { color: #C0392B; background: rgba(192,57,43,0.1); }
+.saved-accounts-divider { display: flex; align-items: center; gap: 0.7rem; color: var(--text-faint); font-size: 0.78rem; margin-bottom: 1rem; }
+.saved-accounts-divider::before, .saved-accounts-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }

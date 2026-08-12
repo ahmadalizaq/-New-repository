@@ -89,6 +89,12 @@
     </div>
 
     <div class="login-card">
+      <div id="saved-accounts-box" class="saved-accounts-box hidden">
+        <div class="saved-accounts-title">حساباتك على هالجهاز</div>
+        <div class="saved-accounts-list" id="saved-accounts-list"></div>
+        <div class="saved-accounts-divider"><span>أو</span></div>
+      </div>
+
       <div class="auth-tabs">
         <button class="auth-tab active" data-tab="login">تسجيل الدخول</button>
         <button class="auth-tab" data-tab="signup">حساب جديد</button>
@@ -158,6 +164,7 @@
       </nav>
       <div class="navbar-actions">
         <button class="theme-toggle" id="theme-toggle-app" aria-label="تبديل الوضع الليلي">🌙</button>
+        <button class="btn btn-ghost" id="switch-account-btn">تبديل الحساب</button>
         <button class="btn btn-ghost" id="logout-btn">تسجيل الخروج</button>
       </div>
     </div>

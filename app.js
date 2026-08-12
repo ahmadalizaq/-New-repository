@@ -40,6 +40,85 @@ document.addEventListener('DOMContentLoaded', async () => {
 function showAuth() {
   document.getElementById('view-auth').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
+  tryAutofillSavedCredential();
+  renderSavedAccountsBox();
+}
+
+async function tryAutofillSavedCredential() {
+  try {
+    if (!navigator.credentials || !window.PasswordCredential) return;
+    const cred = await navigator.credentials.get({ password: true, mediation: 'optional' });
+    if (cred && cred.type === 'password') {
+      document.getElementById('login-username').value = cred.id;
+      document.getElementById('login-password').value = cred.password;
+    }
+  } catch (e) { /* تجاهل بهدوء */ }
+}
+
+/* ============================================================
+   تبديل الحساب — يحفظ جلسات الحسابات على هالجهاز بدون كلمات مرور
+   ============================================================ */
+const SAVED_ACCOUNTS_KEY = 'feel_saved_accounts';
+
+function loadSavedAccounts() {
+  try { return JSON.parse(localStorage.getItem(SAVED_ACCOUNTS_KEY) || '[]'); }
+  catch (e) { return []; }
+}
+function persistSavedAccounts(list) {
+  localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(list));
+}
+function upsertSavedAccount(profile, session) {
+  if (!session || !session.refresh_token) return;
+  const list = loadSavedAccounts().filter(a => a.user_id !== profile.id);
+  list.unshift({
+    user_id: profile.id, username: profile.username, display_name: profile.display_name,
+    avatar_emoji: profile.avatar_emoji, avatar_color: profile.avatar_color,
+    access_token: session.access_token, refresh_token: session.refresh_token,
+  });
+  persistSavedAccounts(list.slice(0, 5)); // أقصى 5 حسابات محفوظة
+}
+function forgetSavedAccount(userId) {
+  persistSavedAccounts(loadSavedAccounts().filter(a => a.user_id !== userId));
+  renderSavedAccountsBox();
+}
+
+function renderSavedAccountsBox() {
+  const box = document.getElementById('saved-accounts-box');
+  const list = document.getElementById('saved-accounts-list');
+  const accounts = loadSavedAccounts().filter(a => !AppState.profile || a.user_id !== AppState.profile.id);
+  if (!accounts.length) { box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  list.innerHTML = accounts.map(a => `
+    <button type="button" class="saved-account-chip" data-action="switch-account" data-uid="${a.user_id}">
+      <span class="avatar avatar-sm" style="background:${a.avatar_color}22;">${a.avatar_emoji}</span>
+      <span class="saved-account-name">${escapeHtml(a.display_name)}<br><span class="saved-account-username">@${escapeHtml(a.username)}</span></span>
+      <span class="saved-account-forget" data-action="forget-account" data-uid="${a.user_id}" title="نسيان هذا الحساب">✕</span>
+    </button>
+  `).join('');
+}
+
+async function switchToAccount(userId) {
+  const account = loadSavedAccounts().find(a => a.user_id === userId);
+  if (!account) return;
+  showToast('🔄', 'جاري التبديل...');
+  const { data, error } = await sb.auth.setSession({ access_token: account.access_token, refresh_token: account.refresh_token });
+  if (error || !data.session) {
+    showToast('🚫', 'انتهت صلاحية هالحساب، لازم تسجّل دخول فيه من جديد.');
+    forgetSavedAccount(userId);
+    return;
+  }
+  upsertSavedAccount({ id: account.user_id, username: account.username, display_name: account.display_name, avatar_emoji: account.avatar_emoji, avatar_color: account.avatar_color }, data.session);
+  const ok = await loadCurrentUserContext();
+  if (!ok) { showToast('🚫', 'صار في خطأ بالتبديل.'); return; }
+  enterApp();
+  showToast('👋', `رجعت لحساب ${AppState.profile.display_name}.`);
+}
+
+async function openAccountSwitcher() {
+  teardownGlobalRealtime();
+  await sb.auth.signOut({ scope: 'local' }); // يسكر الجلسة الحالية بس من هالجهاز، بدون ما يمسحها من قائمة الحسابات المحفوظة
+  AppState.profile = null;
+  showAuth();
 }
 
 async function enterApp() {
@@ -133,13 +212,15 @@ async function handleLogin(e) {
 
   const btn = document.getElementById('login-submit-btn');
   setBtnLoading(btn, true, 'جاري الدخول...');
-  const { error } = await DB.signInWithUsername(username, password);
+  const { data, error } = await DB.signInWithUsername(username, password);
   setBtnLoading(btn, false);
 
   if (error) { errEl.textContent = error.message; errEl.classList.remove('hidden'); return; }
 
   const ok = await loadCurrentUserContext();
   if (!ok) { errEl.textContent = 'صار في خطأ، جرب تاني.'; errEl.classList.remove('hidden'); return; }
+  saveCredentialForBrowser(username, password, AppState.profile.display_name);
+  upsertSavedAccount(AppState.profile, data.session);
   document.getElementById('login-form').reset();
   enterApp();
   showToast('👋', `أهلًا فيك، ${AppState.profile.display_name}.`);
@@ -176,12 +257,27 @@ async function handleSignup(e) {
 
   if (data.session) {
     const ok = await loadCurrentUserContext();
-    if (ok) { enterApp(); showToast('🎉', 'تم إنشاء حسابك! أهلًا فيك بـ FEEL.'); return; }
+    if (ok) {
+      saveCredentialForBrowser(username, password, AppState.profile.display_name);
+      upsertSavedAccount(AppState.profile, data.session);
+      enterApp();
+      showToast('🎉', 'تم إنشاء حسابك! أهلًا فيك بـ FEEL.');
+      return;
+    }
   }
   okEl.textContent = 'تم إنشاء الحساب! تحقق من إيميلك لتفعيل الحساب، وبعدين سجّل دخول.';
   okEl.classList.remove('hidden');
   document.getElementById('signup-form').reset();
   switchAuthTab('login');
+}
+
+/* ---------- حفظ بيانات الدخول بمدير كلمات المرور تبع المتصفح ---------- */
+async function saveCredentialForBrowser(username, password, displayName) {
+  try {
+    if (!window.PasswordCredential) return; // المتصفح ما بيدعم الميزة (متصفحات مبنية على Chromium بتدعمها)
+    const cred = new PasswordCredential({ id: username, password, name: displayName || username });
+    await navigator.credentials.store(cred);
+  } catch (e) { /* تجاهل بهدوء — مش ميزة أساسية */ }
 }
 
 function translateAuthError(msg) {
@@ -212,6 +308,7 @@ function buildAvatarPicker() {
 
 async function logout() {
   teardownGlobalRealtime();
+  if (AppState.profile) forgetSavedAccount(AppState.profile.id); // تسجيل الخروج الكامل بينسى الحساب من هالجهاز
   await DB.signOut();
   AppState.profile = null;
   showAuth();
@@ -962,6 +1059,7 @@ function bindStaticEvents() {
   document.getElementById('theme-toggle-auth').addEventListener('click', toggleTheme);
   document.getElementById('theme-toggle-app').addEventListener('click', toggleTheme);
   document.getElementById('logout-btn').addEventListener('click', logout);
+  document.getElementById('switch-account-btn').addEventListener('click', openAccountSwitcher);
 
   document.getElementById('ask-form').addEventListener('submit', submitQuestion);
   document.getElementById('ask-close').addEventListener('click', closeAskModal);
@@ -1005,6 +1103,8 @@ function bindStaticEvents() {
       case 'delete-answer': e.stopPropagation(); deleteAnswerHandler(actionEl.dataset.aid); break;
       case 'delete-post': e.stopPropagation(); deletePostHandler(actionEl.dataset.pid); break;
       case 'delete-comment': e.stopPropagation(); deleteCommentHandler(actionEl.dataset.cid, actionEl.dataset.pid); break;
+      case 'switch-account': switchToAccount(actionEl.dataset.uid); break;
+      case 'forget-account': e.stopPropagation(); forgetSavedAccount(actionEl.dataset.uid); break;
     }
   });
 
