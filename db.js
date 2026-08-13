@@ -195,8 +195,8 @@ const DB = {
     await sb.from('notifications').update({ is_read: true }).eq('user_id', userId).eq('is_read', false);
   },
 
-  async notify(userId, icon, text) {
-    await sb.from('notifications').insert({ user_id: userId, icon, text });
+  async notify(userId, icon, text, linkRoute, linkParams) {
+    await sb.from('notifications').insert({ user_id: userId, icon, text, link_route: linkRoute || null, link_params: linkParams || null });
   },
 
   /* ---------------- Admin ---------------- */
@@ -248,4 +248,15 @@ const DB = {
       .subscribe();
   },
   unsubscribe(channel) { if (channel) sb.removeChannel(channel); },
+
+  /* ---------------- Push notifications ---------------- */
+  async savePushSubscription(userId, sub) {
+    const keys = sub.toJSON().keys;
+    return await sb.from('push_subscriptions').upsert({
+      user_id: userId, endpoint: sub.endpoint, p256dh: keys.p256dh, auth: keys.auth,
+    }, { onConflict: 'endpoint' });
+  },
+  async removePushSubscription(endpoint) {
+    return await sb.from('push_subscriptions').delete().eq('endpoint', endpoint);
+  },
 };

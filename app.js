@@ -26,11 +26,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   applyTheme(localStorage.getItem('feel_theme') || 'light');
   buildAvatarPicker();
   bindStaticEvents();
+  listenForNotificationClicks();
 
   const session = await DB.getSession();
   if (session) {
     const ok = await loadCurrentUserContext();
-    if (ok) { enterApp(); return; }
+    if (ok) { enterApp(); handleDeepLinkFromUrl(); return; }
   }
   showAuth();
 });
@@ -128,6 +129,91 @@ async function enterApp() {
   document.getElementById('admin-nav-link').classList.toggle('hidden', !(AppState.profile && AppState.profile.is_admin));
   navigateTo('home');
   setupGlobalRealtime();
+  maybeAskPushPermission();
+}
+
+/* ============================================================
+   PUSH NOTIFICATIONS — تصل حتى لو الموقع مسكّر (بشرط تفعيلها مرة)
+   ============================================================ */
+function urlBase64ToUint8Array(base64String) {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
+}
+
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) return null;
+  try { return await navigator.serviceWorker.register('/sw.js'); }
+  catch (e) { console.error('service worker registration failed', e); return null; }
+}
+
+async function maybeAskPushPermission() {
+  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  if (Notification.permission === 'denied') return;
+  if (localStorage.getItem('feel_push_dismissed') === '1') return;
+  if (Notification.permission === 'granted') { await subscribeToPush(); return; }
+  showPushPrompt();
+}
+
+function showPushPrompt() {
+  const container = document.getElementById('toast-container');
+  const box = document.createElement('div');
+  box.className = 'toast push-prompt';
+  box.innerHTML = `
+    <span>🔔</span>
+    <span>خلي FEEL يبعتلك إشعارات حتى وانت مسكّر الموقع؟</span>
+    <div class="push-prompt-actions">
+      <button class="btn btn-primary btn-sm" id="push-allow-btn">فعّل</button>
+      <button class="btn btn-ghost btn-sm" id="push-dismiss-btn">لأ شكرًا</button>
+    </div>
+  `;
+  container.appendChild(box);
+  document.getElementById('push-allow-btn').addEventListener('click', async () => {
+    box.remove();
+    await subscribeToPush();
+  });
+  document.getElementById('push-dismiss-btn').addEventListener('click', () => {
+    box.remove();
+    localStorage.setItem('feel_push_dismissed', '1');
+  });
+}
+
+async function subscribeToPush() {
+  try {
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') return;
+    const reg = await registerServiceWorker();
+    if (!reg) return;
+    const existing = await reg.pushManager.getSubscription();
+    const sub = existing || await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    await DB.savePushSubscription(AppState.profile.id, sub);
+    showToast('🔔', 'تمام، رح توصلك إشعارات حتى لو الموقع مسكّر.');
+  } catch (e) {
+    console.error('push subscribe failed', e);
+  }
+}
+
+function listenForNotificationClicks() {
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data && event.data.type === 'FEEL_NOTIFICATION_CLICK') {
+      if (AppState.profile) navigateTo(event.data.route, event.data.params || {});
+    }
+  });
+}
+
+function handleDeepLinkFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const route = params.get('route');
+  if (!route) return;
+  let routeParams = {};
+  try { routeParams = JSON.parse(params.get('params') || '{}'); } catch (e) {}
+  window.history.replaceState({}, '', window.location.pathname);
+  setTimeout(() => { if (AppState.profile) navigateTo(route, routeParams); }, 300);
 }
 
 /* ============================================================
@@ -162,7 +248,7 @@ function setupGlobalRealtime() {
     AppState.xpMap[feelingId] = newXp;
 
     if (afterLevel > beforeLevel) {
-      DB.notify(AppState.profile.id, '✨', `وصلت للمستوى ${afterLevel} في ${FEELING_MAP[feelingId].name}.`);
+      DB.notify(AppState.profile.id, '✨', `وصلت للمستوى ${afterLevel} في ${FEELING_MAP[feelingId].name}.`, 'feeling-detail', { activeFeelingId: feelingId });
       showLevelUp(feelingId, afterLevel);
     }
     if (['home', 'feelings', 'feeling-detail', 'profile'].includes(AppState.route)) renderMain();
@@ -732,7 +818,7 @@ async function submitAnswer(qid) {
   if (error) { err.textContent = 'صار في خطأ، جرب تاني.'; err.classList.remove('hidden'); return; }
 
   if (q && q.author_id !== AppState.profile.id) {
-    await DB.notify(q.author_id, '💡', `${AppState.profile.display_name} أجاب على سؤالك في ${FEELING_MAP[q.feeling_id].name}.`);
+    await DB.notify(q.author_id, '💡', `${AppState.profile.display_name} أجاب على سؤالك في ${FEELING_MAP[q.feeling_id].name}.`, 'question-detail', { activeQuestionId: q.id, returnRoute: 'questions' });
   }
   ta.value = '';
   await renderMain();
@@ -932,7 +1018,7 @@ async function renderNotifications() {
   return `
     <h1 class="section-title" style="font-size:1.9rem; margin-bottom:1.4rem;">الإشعارات</h1>
     <div class="notif-list">${notifs.map(n => `
-      <div class="notif-item ${n.is_read ? '' : 'unread'}">
+      <div class="notif-item ${n.is_read ? '' : 'unread'} ${n.link_route ? 'clickable' : ''}" ${n.link_route ? `data-action="open-notification" data-route="${escapeHtml(n.link_route)}" data-params='${escapeHtml(JSON.stringify(n.link_params || {}))}'` : ''}>
         <span class="notif-icon">${n.icon}</span>
         <div><div class="notif-text">${escapeHtml(n.text)}</div><div class="notif-time">${timeAgo(n.created_at)}</div></div>
       </div>
@@ -1104,6 +1190,7 @@ function bindStaticEvents() {
       case 'delete-comment': e.stopPropagation(); deleteCommentHandler(actionEl.dataset.cid, actionEl.dataset.pid); break;
       case 'switch-account': switchToAccount(actionEl.dataset.uid); break;
       case 'forget-account': e.stopPropagation(); forgetSavedAccount(actionEl.dataset.uid); break;
+      case 'open-notification': { let p = {}; try { p = JSON.parse(actionEl.dataset.params || '{}'); } catch (err) {} navigateTo(actionEl.dataset.route, p); break; }
     }
   });
 

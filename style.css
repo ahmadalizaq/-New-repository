@@ -942,3 +942,11 @@ a { color: inherit; }
 .saved-account-forget:hover { color: #C0392B; background: rgba(192,57,43,0.1); }
 .saved-accounts-divider { display: flex; align-items: center; gap: 0.7rem; color: var(--text-faint); font-size: 0.78rem; margin-bottom: 1rem; }
 .saved-accounts-divider::before, .saved-accounts-divider::after { content: ''; flex: 1; height: 1px; background: var(--border-soft); }
+
+/* ---------- Push permission prompt ---------- */
+.push-prompt { flex-direction: column; align-items: flex-start; gap: 0.6rem; max-width: 300px; }
+.push-prompt-actions { display: flex; gap: 0.5rem; width: 100%; }
+
+/* ---------- Clickable notification ---------- */
+.notif-item.clickable { cursor: pointer; transition: transform .1s ease; }
+.notif-item.clickable:hover { transform: translateX(-3px); border-color: var(--brand-3); }
