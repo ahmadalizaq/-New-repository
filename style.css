@@ -4,27 +4,27 @@
 
 /* ---------- Design tokens ---------- */
 :root {
-  --font-display: 'Fraunces', Georgia, serif;
+  --font-display: 'Reem Kufi', 'Cairo', sans-serif;
   --font-body: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 
-  --bg: #FAF8F5;
+  --bg: #F5F4FB;
   --bg-elevated: #FFFFFF;
-  --bg-sunken: #F1EEE8;
-  --text: #241F1A;
-  --text-muted: #766F64;
-  --text-faint: #A39C8E;
-  --border: #E7E1D6;
-  --border-soft: #F0EBE1;
+  --bg-sunken: #ECEAF6;
+  --text: #1D1B2E;
+  --text-muted: #6A6480;
+  --text-faint: #9C97AE;
+  --border: #E1DEF0;
+  --border-soft: #EDEBF7;
 
-  --brand-1: #E6395B;
-  --brand-2: #55BFA3;
-  --brand-3: #8B5CF6;
-  --brand-4: #F6C945;
-  --brand-gradient: linear-gradient(120deg, #E6395B 0%, #F28C6B 22%, #F6C945 42%, #55BFA3 62%, #4A90E2 80%, #8B5CF6 100%);
+  --brand-1: #FF5678;
+  --brand-2: #FFB020;
+  --brand-3: #6C5CE0;
+  --brand-4: #2E2266;
+  --brand-gradient: linear-gradient(120deg, #FF5678 0%, #FFB020 35%, #7C5CFC 70%, #3A2E7C 100%);
 
-  --shadow-sm: 0 1px 2px rgba(36, 31, 26, 0.06), 0 1px 1px rgba(36, 31, 26, 0.04);
-  --shadow-md: 0 8px 24px rgba(36, 31, 26, 0.08), 0 2px 6px rgba(36, 31, 26, 0.04);
-  --shadow-lg: 0 24px 60px rgba(36, 31, 26, 0.16), 0 4px 16px rgba(36, 31, 26, 0.08);
+  --shadow-sm: 0 1px 2px rgba(29, 27, 46, 0.06), 0 1px 1px rgba(29, 27, 46, 0.05);
+  --shadow-md: 0 10px 28px rgba(29, 27, 46, 0.09), 0 2px 6px rgba(29, 27, 46, 0.05);
+  --shadow-lg: 0 26px 64px rgba(29, 27, 46, 0.18), 0 6px 18px rgba(29, 27, 46, 0.09);
 
   --radius-sm: 10px;
   --radius-md: 16px;
@@ -38,18 +38,18 @@
 }
 
 [data-theme="dark"] {
-  --bg: #17140F;
-  --bg-elevated: #211D17;
-  --bg-sunken: #1C1811;
-  --text: #F3EFE6;
-  --text-muted: #B0A895;
-  --text-faint: #746C5C;
-  --border: #332C21;
-  --border-soft: #29241B;
+  --bg: #131120;
+  --bg-elevated: #1C1930;
+  --bg-sunken: #17152A;
+  --text: #F1EFFB;
+  --text-muted: #ADA6C7;
+  --text-faint: #726C8C;
+  --border: #2C2846;
+  --border-soft: #221F3A;
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
-  --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.55);
+  --shadow-md: 0 10px 28px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 26px 64px rgba(0, 0, 0, 0.55);
 
   color-scheme: dark;
 }
@@ -265,8 +265,8 @@ a { color: inherit; }
   padding: 24px;
   position: relative;
   background:
-    radial-gradient(600px 400px at 12% 8%, rgba(230,57,91,0.10), transparent),
-    radial-gradient(600px 420px at 88% 92%, rgba(85,191,163,0.12), transparent),
+    radial-gradient(650px 420px at 10% 6%, rgba(255,86,120,0.10), transparent),
+    radial-gradient(650px 440px at 90% 94%, rgba(108,92,224,0.14), transparent),
     var(--bg);
 }
 .theme-toggle-floating { position: absolute; top: 24px; right: 24px; }
