@@ -4,8 +4,8 @@
 
 /* ---------- Design tokens ---------- */
 :root {
-  --font-display: 'Reem Kufi', 'Cairo', sans-serif;
-  --font-body: 'Cairo', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'El Messiri', 'IBM Plex Sans Arabic', sans-serif;
+  --font-body: 'IBM Plex Sans Arabic', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-stat: 'JetBrains Mono', ui-monospace, monospace;
 
   --bg: #FFFFFF;
@@ -357,78 +357,81 @@ a { color: inherit; }
 }
 
 /* ---------- App shell ---------- */
-.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.app-shell { min-height: 100vh; display: flex; }
 
-/* Navbar */
-.navbar {
+/* Mobile top bar (hidden on desktop) */
+.mobile-topbar {
+  display: none;
+  position: sticky; top: 0; z-index: 100;
+  height: 60px;
+  background: var(--bg-elevated);
+  border-bottom: 2px solid var(--border);
+  align-items: center; justify-content: space-between;
+  padding: 0 16px;
+}
+.mobile-logo {
+  font-family: var(--font-display); font-size: 1.4rem; font-weight: 700; cursor: pointer;
+  background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+
+/* Sidebar (desktop primary nav) */
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
   position: sticky;
   top: 0;
-  z-index: 100;
-  background: color-mix(in srgb, var(--bg-elevated) 88%, transparent);
-  backdrop-filter: blur(14px);
-  border-bottom: 1px solid var(--border-soft);
-  height: var(--nav-h);
-}
-.navbar-inner {
-  max-width: 1200px;
-  margin: 0 auto;
-  height: 100%;
-  padding: 0 24px;
+  height: 100vh;
+  border-left: 2px solid var(--border);
+  background: var(--bg-elevated);
   display: flex;
-  align-items: center;
-  gap: 2rem;
+  flex-direction: column;
+  padding: 1.6rem 1.2rem;
 }
-.navbar-logo {
-  font-family: var(--font-display);
-  font-size: 1.7rem;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  cursor: pointer;
-  background: var(--brand-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.sidebar-logo {
+  font-family: var(--font-display); font-size: 1.9rem; font-weight: 700; letter-spacing: -0.01em; cursor: pointer;
+  background: var(--brand-gradient); -webkit-background-clip: text; background-clip: text; color: transparent;
+  margin-bottom: 2.2rem; padding: 0 0.4rem;
 }
-.navbar-links { display: flex; gap: 0.4rem; flex: 1; }
-.nav-link {
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-weight: 600;
-  font-size: 0.92rem;
-  padding: 0.55rem 0.9rem;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  transition: background .15s ease, color .15s ease;
-  position: relative;
+.sidebar-nav { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; }
+.side-link {
+  display: flex; align-items: center; gap: 0.8rem;
+  background: none; border: none; color: var(--text-muted);
+  font-family: var(--font-body); font-weight: 700; font-size: 0.95rem;
+  padding: 0.75rem 0.9rem; border-radius: var(--radius-sm); cursor: pointer;
+  text-align: right; position: relative;
+  transition: background .12s ease, color .12s ease;
 }
-.nav-link:hover { background: var(--bg-sunken); color: var(--text); }
-.nav-link.active { background: var(--text); color: var(--bg); }
+.side-icon { font-size: 1.15rem; width: 1.4rem; text-align: center; }
+.side-link:hover { background: var(--bg-sunken); color: var(--text); }
+.side-link.active { background: var(--text); color: var(--bg); }
+.side-link .nav-badge { margin-right: auto; }
 .nav-badge {
   background: var(--brand-1);
   color: white;
   font-size: 0.68rem;
-  font-weight: 700;
-  border-radius: 999px;
-  padding: 0.1rem 0.4rem;
-  margin-left: 0.35rem;
+  font-weight: 800;
+  border-radius: var(--radius-sm);
+  padding: 0.1rem 0.45rem;
 }
-.navbar-actions { display: flex; align-items: center; gap: 0.7rem; }
+.sidebar-footer { display: flex; flex-direction: column; gap: 0.6rem; padding-top: 1rem; border-top: 2px solid var(--border-soft); }
+.sidebar-footer .theme-toggle { align-self: flex-start; }
+
 .theme-toggle {
   width: 40px; height: 40px;
-  border-radius: 50%;
-  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border);
   background: var(--bg-sunken);
   cursor: pointer;
   font-size: 1rem;
   display: flex; align-items: center; justify-content: center;
 }
-.theme-toggle:hover { border-color: var(--brand-3); }
+.theme-toggle:hover { border-color: var(--text); }
 
 /* Main content */
 .main-content {
   flex: 1;
-  max-width: 1200px;
+  min-width: 0;
+  max-width: 760px;
   width: 100%;
   margin: 0 auto;
   padding: 32px 24px 90px;
@@ -442,9 +445,8 @@ a { color: inherit; }
   position: fixed;
   bottom: 0; left: 0; right: 0;
   height: var(--bottom-nav-h);
-  background: color-mix(in srgb, var(--bg-elevated) 92%, transparent);
-  backdrop-filter: blur(14px);
-  border-top: 1px solid var(--border-soft);
+  background: var(--bg-elevated);
+  border-top: 2px solid var(--border);
   z-index: 100;
   align-items: center;
   justify-content: space-around;
@@ -454,7 +456,7 @@ a { color: inherit; }
   background: none; border: none; color: var(--text-faint);
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   font-size: 0.65rem; font-weight: 700; cursor: pointer;
-  padding: 6px 10px; border-radius: 12px; position: relative;
+  padding: 6px 10px; border-radius: var(--radius-sm); position: relative;
   min-width: 52px;
 }
 .bottom-nav-btn.active { color: var(--text); }
@@ -652,11 +654,40 @@ a { color: inherit; }
 .feeling-hero-stats { display: flex; gap: 2rem; margin-top: 1.6rem; flex-wrap: wrap; align-items: center; }
 
 /* ---------- Question detail modal ---------- */
-.qd-question { padding-bottom: 1.2rem; border-bottom: 1px solid var(--border-soft); margin-bottom: 1.2rem; }
-.qd-answers-title { font-size: 1rem; font-weight: 700; margin-bottom: 0.8rem; }
+.back-btn {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  background: none; border: none; color: var(--text-muted);
+  font-family: var(--font-body); font-weight: 700; font-size: 0.92rem;
+  cursor: pointer; padding: 0.5rem 0; margin-bottom: 1.2rem;
+}
+.back-btn:hover { color: var(--text); }
+.qd-question { padding: 1.4rem; margin-bottom: 1.4rem; background: var(--fc-bg, var(--bg-elevated)); border: 2px solid var(--border); border-right: 6px solid var(--fc, var(--brand-3)); border-radius: var(--radius-md); }
+.qd-text { font-size: 1.15rem; font-weight: 600; }
+.qd-answers-title { font-family: var(--font-stat); font-size: 0.85rem; font-weight: 700; color: var(--text-muted); margin-bottom: 0.8rem; }
 .answer-card { padding: 1rem 0; border-bottom: 1px solid var(--border-soft); }
 .answer-card:last-child { border-bottom: none; }
 .answer-text { font-size: 0.96rem; line-height: 1.5; margin: 0.5rem 0 0.7rem; }
+
+/* ---------- Composer (صندوق كتابة السؤال الثابت) ---------- */
+.composer {
+  background: var(--bg-elevated);
+  border: 2px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.1rem 1.2rem;
+  margin-bottom: 1.6rem;
+}
+.composer-textarea {
+  width: 100%; min-height: 64px; border: none; background: none; resize: none;
+  font-family: var(--font-body); font-size: 1.02rem; color: var(--text);
+  padding: 0.3rem 0; outline: none;
+}
+.composer-footer { display: flex; align-items: center; gap: 0.8rem; margin-top: 0.6rem; padding-top: 0.8rem; border-top: 1px solid var(--border-soft); }
+.composer-select {
+  border: 2px solid var(--border); background: var(--bg-sunken); color: var(--text);
+  font-family: var(--font-body); font-weight: 700; font-size: 0.85rem;
+  padding: 0.5rem 0.8rem; border-radius: var(--radius-sm);
+}
+.composer-spacer { flex: 1; }
 .answer-tip-badge {
   font-size: 0.74rem; font-weight: 700;
   background: var(--bg-sunken);
@@ -776,8 +807,9 @@ a { color: inherit; }
 
 /* ---------- Responsive ---------- */
 @media (max-width: 880px) {
-  .navbar-links { display: none; }
-  .main-content { padding: 24px 16px 100px; }
+  .sidebar { display: none; }
+  .mobile-topbar { display: flex; }
+  .main-content { padding: 24px 16px 100px; max-width: 100%; }
   .bottom-nav { display: flex; }
   .user-card { padding: 1.3rem; }
   .user-card-stats { gap: 1rem; }
@@ -786,10 +818,11 @@ a { color: inherit; }
   .em-xp { width: 70px; }
 }
 @media (max-width: 520px) {
-  .login-logo { font-size: 2.8rem; }
+  .login-logo { font-size: 3.2rem; }
   .modal-card { padding: 1.5rem; }
   .tip-grid { grid-template-columns: 1fr 1fr; }
   .feelings-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .composer-footer { flex-wrap: wrap; }
 }
 
 /* Reduced motion */

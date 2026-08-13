@@ -6,7 +6,7 @@
 <title>FEEL — افهم. تواصل. انمُ.</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Reem+Kufi:wght@400..700&family=Cairo:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@500;700;800&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=El+Messiri:wght@400;500;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&family=JetBrains+Mono:wght@600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
@@ -40,32 +40,6 @@
   </div>
 </div>
 
-<!-- ASK MODAL -->
-<div id="ask-overlay" class="overlay hidden">
-  <div class="modal-card">
-    <button class="modal-close" id="ask-close" aria-label="إغلاق">✕</button>
-    <h3 class="modal-title">اسأل شيئًا</h3>
-    <p class="modal-sub">ما الذي تريد أن تفهمه؟</p>
-    <form id="ask-form">
-      <textarea id="ask-textarea" class="ask-textarea" maxlength="280" placeholder="اكتب السؤال الذي ما زال يشغل بالك..." required></textarea>
-      <div class="ask-row">
-        <label for="ask-feeling" class="ask-label">الشعور</label>
-        <select id="ask-feeling" class="ask-select"></select>
-      </div>
-      <p class="field-error hidden" id="ask-error"></p>
-      <button type="submit" class="btn btn-primary btn-block" id="ask-submit-btn">نشر السؤال</button>
-    </form>
-  </div>
-</div>
-
-<!-- QUESTION DETAIL -->
-<div id="question-overlay" class="overlay hidden">
-  <div class="modal-card modal-wide">
-    <button class="modal-close" id="question-close" aria-label="إغلاق">✕</button>
-    <div id="question-detail-content"></div>
-  </div>
-</div>
-
 <!-- BAN MODAL (admin) -->
 <div id="ban-overlay" class="overlay hidden">
   <div class="modal-card">
@@ -74,12 +48,12 @@
     <p class="modal-sub" id="ban-target-name"></p>
     <form id="ban-form">
       <textarea id="ban-reason" class="ask-textarea" placeholder="سبب الحظر (بيظهر للمستخدم)..." maxlength="200"></textarea>
-      <button type="submit" class="btn btn-primary btn-block" style="margin-top:0.9rem; background:#C0392B;">تأكيد الحظر</button>
+      <button type="submit" class="btn btn-primary btn-block" style="margin-top:0.9rem; background:#C0392B; border-color:#C0392B;">تأكيد الحظر</button>
     </form>
   </div>
 </div>
 
-<!-- ============ AUTH VIEW (Login / Signup) ============ -->
+<!-- ============ AUTH VIEW ============ -->
 <section id="view-auth" class="view view-login">
   <button class="theme-toggle theme-toggle-floating" id="theme-toggle-auth" aria-label="تبديل الوضع الليلي">🌙</button>
   <div class="login-wrap">
@@ -100,7 +74,6 @@
         <button class="auth-tab" data-tab="signup">حساب جديد</button>
       </div>
 
-      <!-- LOGIN FORM -->
       <form id="login-form" class="auth-form-panel">
         <div class="login-field">
           <label for="login-username">اسم المستخدم أو الإيميل</label>
@@ -114,7 +87,6 @@
         <button type="submit" class="btn btn-primary btn-block" id="login-submit-btn">ادخل إلى FEEL</button>
       </form>
 
-      <!-- SIGNUP FORM -->
       <form id="signup-form" class="auth-form-panel hidden">
         <div class="login-field">
           <label for="signup-username">اسم المستخدم</label>
@@ -148,34 +120,38 @@
 
 <!-- ============ APP SHELL ============ -->
 <div id="app-shell" class="app-shell hidden">
-  <header class="navbar">
-    <div class="navbar-inner">
-      <div class="navbar-logo" data-nav="home">FEEL</div>
-      <nav class="navbar-links">
-        <button class="nav-link" data-nav="home">الرئيسية</button>
-        <button class="nav-link" data-nav="feelings">المشاعر</button>
-        <button class="nav-link" data-nav="questions">الأسئلة</button>
-        <button class="nav-link" data-nav="posts">الاقتباسات</button>
-        <button class="nav-link" data-nav="profile">ملفي الشخصي</button>
-        <button class="nav-link" data-nav="notifications">
-          الإشعارات <span class="nav-badge hidden" id="notif-badge">0</span>
-        </button>
-        <button class="nav-link hidden" data-nav="admin" id="admin-nav-link">لوحة الأدمن</button>
-      </nav>
-      <div class="navbar-actions">
-        <button class="theme-toggle" id="theme-toggle-app" aria-label="تبديل الوضع الليلي">🌙</button>
-        <button class="btn btn-ghost" id="switch-account-btn">تبديل الحساب</button>
-        <button class="btn btn-ghost" id="logout-btn">تسجيل الخروج</button>
-      </div>
-    </div>
+
+  <header class="mobile-topbar">
+    <div class="mobile-logo" data-nav="home">FEEL</div>
+    <button class="theme-toggle" id="theme-toggle-mobile" aria-label="تبديل الوضع الليلي">🌙</button>
   </header>
+
+  <aside class="sidebar">
+    <div class="sidebar-logo" data-nav="home">FEEL</div>
+
+    <nav class="sidebar-nav">
+      <button class="side-link" data-nav="home"><span class="side-icon">🏠</span><span>الرئيسية</span></button>
+      <button class="side-link" data-nav="feelings"><span class="side-icon">🌈</span><span>المشاعر</span></button>
+      <button class="side-link" data-nav="questions"><span class="side-icon">❓</span><span>الأسئلة</span></button>
+      <button class="side-link" data-nav="posts"><span class="side-icon">💬</span><span>الاقتباسات</span></button>
+      <button class="side-link" data-nav="notifications"><span class="side-icon">🔔</span><span>الإشعارات</span><span class="nav-badge hidden" id="notif-badge">0</span></button>
+      <button class="side-link" data-nav="profile"><span class="side-icon">🙂</span><span>ملفي الشخصي</span></button>
+      <button class="side-link hidden" data-nav="admin" id="admin-nav-link"><span class="side-icon">🛡️</span><span>لوحة الأدمن</span></button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="theme-toggle" id="theme-toggle-app" aria-label="تبديل الوضع الليلي">🌙</button>
+      <button class="btn btn-ghost btn-sm" id="switch-account-btn">تبديل الحساب</button>
+      <button class="btn btn-ghost btn-sm" id="logout-btn">تسجيل الخروج</button>
+    </div>
+  </aside>
 
   <main class="main-content" id="main-content"></main>
 
   <nav class="bottom-nav">
     <button class="bottom-nav-btn" data-nav="home" aria-label="الرئيسية"><span class="bn-icon">🏠</span><span class="bn-label">الرئيسية</span></button>
     <button class="bottom-nav-btn" data-nav="questions" aria-label="الأسئلة"><span class="bn-icon">❓</span><span class="bn-label">الأسئلة</span></button>
-    <button class="bottom-nav-btn bottom-nav-ask" data-action="ask" aria-label="اسأل شيئًا"><span class="bn-icon">✎</span></button>
+    <button class="bottom-nav-btn bottom-nav-ask" data-nav="questions" aria-label="اسأل شيئًا"><span class="bn-icon">✎</span></button>
     <button class="bottom-nav-btn" data-nav="posts" aria-label="الاقتباسات"><span class="bn-icon">💬</span><span class="bn-label">اقتباسات</span></button>
     <button class="bottom-nav-btn" data-nav="notifications" aria-label="الإشعارات"><span class="bn-icon">🔔</span><span class="bn-label">إشعارات</span><span class="nav-badge nav-badge-mobile hidden" id="notif-badge-mobile">0</span></button>
     <button class="bottom-nav-btn" data-nav="profile" aria-label="الملف الشخصي"><span class="bn-icon">🙂</span><span class="bn-label">ملفي</span></button>

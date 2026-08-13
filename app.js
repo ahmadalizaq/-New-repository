@@ -8,8 +8,9 @@ const AppState = {
   questionsScope: 'all', // 'all' | 'mine'
   activeFeelingId: null,
   activeQuestionId: null,
+  returnRoute: 'questions',
+  returnFeelingId: null,
   tipContext: null,
-  askDefaultFeeling: null,
   searchQuery: '',
   profile: null,
   xpMap: {},
@@ -307,11 +308,10 @@ function buildAvatarPicker() {
 }
 
 async function logout() {
-  teardownGlobalRealtime();
-  if (AppState.profile) forgetSavedAccount(AppState.profile.id); // تسجيل الخروج الكامل بينسى الحساب من هالجهاز
-  await DB.signOut();
-  AppState.profile = null;
-  showAuth();
+  // زي فيسبوك/انستقرام: تسجيل الخروج بس بيسكر الجلسة الحالية،
+  // وبيضل الحساب محفوظ بقائمة "تبديل الحساب" حتى ترجعله بضغطة وحدة.
+  // الحذف الكامل بيصير بس لما تدوس ✕ جنب الحساب.
+  await openAccountSwitcher();
 }
 
 /* ============================================================
@@ -322,15 +322,18 @@ async function deleteQuestionHandler(qid) {
   const { error } = await DB.deleteQuestion(qid);
   if (error) { showToast('🚫', 'ما قدرنا نحذف السؤال.'); return; }
   showToast('🗑', 'تم حذف السؤال.');
-  if (AppState.activeQuestionId === qid) closeQuestionDetail();
-  renderMain();
+  if (AppState.route === 'question-detail' && AppState.activeQuestionId === qid) {
+    navigateTo(AppState.returnRoute || 'questions', { activeFeelingId: AppState.returnFeelingId });
+  } else {
+    renderMain();
+  }
 }
 async function deleteAnswerHandler(aid) {
   if (!confirm('متأكد إنك بدك تحذف هالإجابة؟ هالإجراء ما بينرجع.')) return;
   const { error } = await DB.deleteAnswer(aid);
   if (error) { showToast('🚫', 'ما قدرنا نحذف الإجابة.'); return; }
   showToast('🗑', 'تم حذف الإجابة.');
-  if (AppState.activeQuestionId) renderQuestionDetail();
+  if (AppState.route === 'question-detail') renderMain();
 }
 async function deletePostHandler(pid) {
   if (!confirm('متأكد إنك بدك تحذف هالبوست؟ هالإجراء ما بينرجع.')) return;
@@ -352,6 +355,10 @@ async function deleteCommentHandler(cid, pid) {
    ============================================================ */
 function navigateTo(route, params = {}) {
   if (route === 'admin' && !(AppState.profile && AppState.profile.is_admin)) return;
+  if (AppState.route === 'question-detail' && route !== 'question-detail' && AppState.channels.answers) {
+    DB.unsubscribe(AppState.channels.answers);
+    AppState.channels.answers = null;
+  }
   AppState.route = route;
   Object.assign(AppState, params);
   renderMain();
@@ -360,9 +367,11 @@ function navigateTo(route, params = {}) {
 }
 
 function updateNavActive() {
-  document.querySelectorAll('.nav-link, .bottom-nav-btn').forEach(el => {
+  document.querySelectorAll('.side-link, .bottom-nav-btn').forEach(el => {
     const nav = el.dataset.nav;
-    el.classList.toggle('active', nav && (nav === AppState.route || (nav === 'feelings' && AppState.route === 'feeling-detail')));
+    el.classList.toggle('active', nav && (nav === AppState.route ||
+      (nav === 'feelings' && AppState.route === 'feeling-detail') ||
+      (nav === 'questions' && AppState.route === 'question-detail')));
   });
   refreshNotifBadge();
 }
@@ -377,6 +386,7 @@ async function renderMain() {
       case 'feelings': html = await renderFeelingsPage(); break;
       case 'feeling-detail': html = await renderFeelingDetail(AppState.activeFeelingId); break;
       case 'questions': html = await renderQuestionsPage(); break;
+      case 'question-detail': html = await renderQuestionDetailPage(AppState.activeQuestionId); break;
       case 'posts': html = await renderPostsPage(); break;
       case 'profile': html = await renderProfile(); break;
       case 'notifications': html = await renderNotifications(); break;
@@ -434,7 +444,7 @@ async function renderHome() {
     <section>
       <div class="section-head">
         <div><h2 class="section-title">أسئلة تستاهل جواب</h2><p class="section-sub">أسئلة حقيقية من ناس عم يفكروا بشي مهم.</p></div>
-        <button class="btn btn-primary btn-sm" data-action="ask">اسأل شيئًا</button>
+        <button class="btn btn-primary btn-sm" data-nav="questions">اسأل شيئًا</button>
       </div>
       <div class="question-feed">${worthAnswering.map(q => questionCardHtml(q)).join('') || emptyStateHtml('home')}</div>
     </section>
@@ -497,9 +507,9 @@ async function renderFeelingDetail(feelingId) {
         </div>
       </div>
     </div>
+    ${composerHtml(feeling.id)}
     <div class="section-head">
       <div><h2 class="section-title">أسئلة عن ${feeling.name}</h2></div>
-      <button class="btn btn-primary btn-sm" data-action="ask" data-feeling="${feeling.id}">اسأل شيئًا</button>
     </div>
     <div class="question-feed">${ordered.map(q => questionCardHtml(q)).join('') || emptyStateHtml('feeling', feeling)}</div>
   `;
@@ -538,12 +548,13 @@ async function renderQuestionsPage() {
   }
 
   const ordered = AppState.questionsScope === 'all' ? orderBySeenStatus(questions) : questions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  const defaultFeeling = AppState.feelingFilter !== 'all' ? AppState.feelingFilter : 'general';
 
   return `
     <section class="section-head">
       <div><h1 class="section-title" style="font-size:1.9rem;">الأسئلة</h1><p class="section-sub">دوّر على مستخدمين، أسئلة، أو مشاعر.</p></div>
-      <button class="btn btn-primary btn-sm" data-action="ask">اسأل شيئًا</button>
     </section>
+    ${composerHtml(defaultFeeling)}
     <div class="scope-toggle">
       <button class="scope-btn ${AppState.questionsScope === 'all' ? 'active' : ''}" data-action="scope" data-scope="all">كل الأسئلة</button>
       <button class="scope-btn ${AppState.questionsScope === 'mine' ? 'active' : ''}" data-action="scope" data-scope="mine">أسئلتي</button>
@@ -555,6 +566,41 @@ async function renderQuestionsPage() {
     <div class="filter-row">${chipHtml}</div>
     <div class="question-feed">${ordered.map(q => questionCardHtml(q)).join('') || emptyStateHtml('search')}</div>
   `;
+}
+
+/* ---------- صندوق كتابة السؤال (بدل نافذة منبثقة) ---------- */
+function composerHtml(defaultFeelingId) {
+  return `
+    <form id="compose-form" class="composer">
+      <textarea id="compose-textarea" class="composer-textarea" maxlength="280" placeholder="شو الي بدك تفهمه عن نفسك اليوم؟"></textarea>
+      <div class="composer-footer">
+        <select id="compose-feeling" class="composer-select">${FEELINGS.map(f => `<option value="${f.id}" ${f.id === defaultFeelingId ? 'selected' : ''}>${f.emoji} ${f.name}</option>`).join('')}</select>
+        <span class="composer-spacer"></span>
+        <button type="submit" class="btn btn-primary" id="compose-submit-btn">نشر السؤال</button>
+      </div>
+      <p class="field-error hidden" id="compose-error"></p>
+    </form>
+  `;
+}
+
+async function submitComposedQuestion(e) {
+  e.preventDefault();
+  const textarea = document.getElementById('compose-textarea');
+  const select = document.getElementById('compose-feeling');
+  const err = document.getElementById('compose-error');
+  const text = textarea.value.trim();
+  err.classList.add('hidden');
+  if (!text) { err.textContent = 'السؤال ما بينفع يكون فاضي.'; err.classList.remove('hidden'); return; }
+
+  const btn = document.getElementById('compose-submit-btn');
+  setBtnLoading(btn, true, 'جاري النشر...');
+  const { error } = await DB.postQuestion({ feelingId: select.value, text, authorId: AppState.profile.id });
+  setBtnLoading(btn, false);
+  if (error) { err.textContent = 'صار في خطأ، جرب تاني.'; err.classList.remove('hidden'); return; }
+
+  textarea.value = '';
+  showToast('📝', 'سؤالك صار منشور.');
+  renderMain();
 }
 
 function questionCardHtml(q) {
@@ -591,49 +637,44 @@ function emptyStateHtml(context, feeling) {
     feeling: { title: `ما في أسئلة عن ${feeling ? feeling.name : 'هاد الشعور'} لسا.`, sub: 'كون أول واحد يبلّش المحادثة.' },
     search: { title: 'ما في نتائج.', sub: 'جرّب كلمة تانية، أو اسأل السؤال بنفسك.' },
   }[context] || { title: 'ما في أسئلة هون لسا.', sub: 'كون أول واحد يبلّش المحادثة.' };
-  return `<div class="empty-state"><div class="empty-state-emoji">🌱</div><div class="empty-state-title">${copy.title}</div><div class="empty-state-sub">${copy.sub}</div><button class="btn btn-primary" data-action="ask">اسأل سؤال</button></div>`;
+  const btn = context === 'home'
+    ? `<button class="btn btn-primary" data-nav="questions">اسأل سؤال</button>`
+    : `<button class="btn btn-primary" data-action="focus-composer">اسأل سؤال</button>`;
+  return `<div class="empty-state"><div class="empty-state-emoji">🌱</div><div class="empty-state-title">${copy.title}</div><div class="empty-state-sub">${copy.sub}</div>${btn}</div>`;
 }
 
 /* ============================================================
-   QUESTION DETAIL
+   QUESTION DETAIL — صفحة كاملة (مش نافذة منبثقة)
    ============================================================ */
-async function openQuestionDetail(qid) {
-  AppState.activeQuestionId = qid;
-  document.getElementById('question-overlay').classList.remove('hidden');
-  document.getElementById('question-detail-content').innerHTML = `<div class="loading-spinner">جاري التحميل...</div>`;
+async function renderQuestionDetailPage(qid) {
+  const q = await DB.fetchQuestionById(qid);
+  if (!q) {
+    return `<button class="back-btn" data-action="go-back">→ رجوع</button><div class="empty-state"><div class="empty-state-emoji">🤷</div><div class="empty-state-title">هاد السؤال ما عاد موجود.</div></div>`;
+  }
   await DB.markQuestionSeen(qid, AppState.profile.id);
   AppState.seenQuestionIds.add(qid);
-  await renderQuestionDetail();
 
-  if (AppState.channels.answers) DB.unsubscribe(AppState.channels.answers);
-  AppState.channels.answers = DB.subscribeToAnswers(qid, debounce(() => {
-    if (AppState.activeQuestionId === qid) renderQuestionDetail();
-  }, 400));
-}
-function closeQuestionDetail() {
-  document.getElementById('question-overlay').classList.add('hidden');
-  AppState.activeQuestionId = null;
-  if (AppState.channels.answers) { DB.unsubscribe(AppState.channels.answers); AppState.channels.answers = null; }
-}
+  if (!AppState.channels.answers) {
+    AppState.channels.answers = DB.subscribeToAnswers(qid, debounce(() => {
+      if (AppState.route === 'question-detail' && AppState.activeQuestionId === qid) renderMain();
+    }, 400));
+  }
 
-async function renderQuestionDetail() {
-  const q = await DB.fetchQuestionById(AppState.activeQuestionId);
-  const container = document.getElementById('question-detail-content');
-  if (!q) { container.innerHTML = `<p>هاد السؤال ما عاد موجود.</p>`; return; }
   const feeling = FEELING_MAP[q.feeling_id];
   const answers = await DB.fetchAnswersForQuestion(q.id);
   const liked = AppState.likedQuestionIds.has(q.id);
   const canDeleteQ = AppState.profile && (AppState.profile.is_admin || q.author_id === AppState.profile.id);
 
-  container.innerHTML = `
-    <div class="qd-question">
+  return `
+    <button class="back-btn" data-action="go-back">→ رجوع</button>
+    <div class="qd-question" style="${feelingVars(feeling)}">
       <div class="q-head">
         <div class="avatar avatar-sm" style="background:${q.author ? q.author.avatar_color : '#ccc'}22;">${q.author ? q.author.avatar_emoji : '🙂'}</div>
         <div><div class="q-author-name">${q.author ? escapeHtml(q.author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(q.created_at)}</div></div>
         <span class="q-spacer"></span>
         ${canDeleteQ ? `<button class="delete-btn" data-action="delete-question" data-qid="${q.id}" title="حذف">🗑</button>` : ''}
       </div>
-      <p class="q-text">${escapeHtml(q.text)}</p>
+      <p class="q-text qd-text">${escapeHtml(q.text)}</p>
       <div class="q-footer">
         <span class="q-tag" style="${feelingVars(feeling)}">${feeling.emoji} ${feeling.name}</span>
         <span class="q-spacer"></span>
@@ -694,43 +735,8 @@ async function submitAnswer(qid) {
     await DB.notify(q.author_id, '💡', `${AppState.profile.display_name} أجاب على سؤالك في ${FEELING_MAP[q.feeling_id].name}.`);
   }
   ta.value = '';
-  await renderQuestionDetail();
-  refreshFeedViews();
+  await renderMain();
   showToast('✅', 'تم نشر إجابتك.');
-}
-
-/* ============================================================
-   ASK MODAL
-   ============================================================ */
-function openAskModal(defaultFeeling) {
-  AppState.askDefaultFeeling = defaultFeeling || AppState.activeFeelingId || 'general';
-  const select = document.getElementById('ask-feeling');
-  select.innerHTML = FEELINGS.map(f => `<option value="${f.id}" ${f.id === AppState.askDefaultFeeling ? 'selected' : ''}>${f.emoji} ${f.name}</option>`).join('');
-  document.getElementById('ask-textarea').value = '';
-  document.getElementById('ask-error').classList.add('hidden');
-  document.getElementById('ask-overlay').classList.remove('hidden');
-  setTimeout(() => document.getElementById('ask-textarea').focus(), 50);
-}
-function closeAskModal() { document.getElementById('ask-overlay').classList.add('hidden'); }
-
-async function submitQuestion(e) {
-  e.preventDefault();
-  const textarea = document.getElementById('ask-textarea');
-  const select = document.getElementById('ask-feeling');
-  const err = document.getElementById('ask-error');
-  const text = textarea.value.trim();
-  err.classList.add('hidden');
-  if (!text) { err.textContent = 'السؤال ما بينفع يكون فاضي.'; err.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('ask-submit-btn');
-  setBtnLoading(btn, true, 'جاري النشر...');
-  const { error } = await DB.postQuestion({ feelingId: select.value, text, authorId: AppState.profile.id });
-  setBtnLoading(btn, false);
-  if (error) { err.textContent = 'صار في خطأ، جرب تاني.'; err.classList.remove('hidden'); return; }
-
-  closeAskModal();
-  showToast('📝', 'سؤالك صار منشور.');
-  navigateTo('feeling-detail', { activeFeelingId: select.value });
 }
 
 /* ============================================================
@@ -752,9 +758,7 @@ async function sendTip(tipType) {
   const tipInfo = TIP_VALUES[tipType];
   showFloatingXp(tipInfo.xp);
   showToast(tipInfo.icon, `تم إرسال Tip — +${tipInfo.xp} XP.`);
-
-  await renderQuestionDetail();
-  refreshFeedViews();
+  await renderMain();
 }
 
 function showFloatingXp(amount) {
@@ -1041,7 +1045,7 @@ function showToast(icon, message) {
 function applyTheme(theme) {
   document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
   const icon = theme === 'dark' ? '☀️' : '🌙';
-  ['theme-toggle-app', 'theme-toggle-auth'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = icon; });
+  ['theme-toggle-app', 'theme-toggle-auth', 'theme-toggle-mobile'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = icon; });
 }
 function toggleTheme() {
   const next = (localStorage.getItem('feel_theme') || 'light') === 'dark' ? 'light' : 'dark';
@@ -1058,19 +1062,13 @@ function bindStaticEvents() {
   document.getElementById('signup-form').addEventListener('submit', handleSignup);
   document.getElementById('theme-toggle-auth').addEventListener('click', toggleTheme);
   document.getElementById('theme-toggle-app').addEventListener('click', toggleTheme);
+  document.getElementById('theme-toggle-mobile').addEventListener('click', toggleTheme);
   document.getElementById('logout-btn').addEventListener('click', logout);
   document.getElementById('switch-account-btn').addEventListener('click', openAccountSwitcher);
-
-  document.getElementById('ask-form').addEventListener('submit', submitQuestion);
-  document.getElementById('ask-close').addEventListener('click', closeAskModal);
-  document.getElementById('ask-overlay').addEventListener('click', e => { if (e.target.id === 'ask-overlay') closeAskModal(); });
 
   document.getElementById('tip-close').addEventListener('click', closeTipModal);
   document.getElementById('tip-overlay').addEventListener('click', e => { if (e.target.id === 'tip-overlay') closeTipModal(); });
   document.getElementById('tip-grid').addEventListener('click', e => { const btn = e.target.closest('.tip-option'); if (btn) sendTip(btn.dataset.tip); });
-
-  document.getElementById('question-close').addEventListener('click', closeQuestionDetail);
-  document.getElementById('question-overlay').addEventListener('click', e => { if (e.target.id === 'question-overlay') closeQuestionDetail(); });
 
   document.getElementById('levelup-close').addEventListener('click', closeLevelUp);
   document.getElementById('ban-close').addEventListener('click', closeBanModal);
@@ -1086,11 +1084,12 @@ function bindStaticEvents() {
     const action = actionEl.dataset.action;
 
     switch (action) {
-      case 'ask': openAskModal(actionEl.dataset.feeling); break;
       case 'open-feeling': navigateTo('feeling-detail', { activeFeelingId: actionEl.dataset.feeling }); break;
-      case 'open-question': openQuestionDetail(actionEl.dataset.qid); break;
-      case 'like-question': e.stopPropagation(); toggleLikeQuestion(actionEl.dataset.qid).then(() => { if (AppState.activeQuestionId) renderQuestionDetail(); refreshFeedViews(); }); break;
-      case 'like-answer': e.stopPropagation(); toggleLikeAnswer(actionEl.dataset.aid).then(renderQuestionDetail); break;
+      case 'open-question': navigateTo('question-detail', { activeQuestionId: actionEl.dataset.qid, returnRoute: AppState.route, returnFeelingId: AppState.activeFeelingId }); break;
+      case 'go-back': navigateTo(AppState.returnRoute || 'questions', { activeFeelingId: AppState.returnFeelingId }); break;
+      case 'focus-composer': { const el = document.getElementById('compose-textarea'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } break; }
+      case 'like-question': e.stopPropagation(); toggleLikeQuestion(actionEl.dataset.qid).then(renderMain); break;
+      case 'like-answer': e.stopPropagation(); toggleLikeAnswer(actionEl.dataset.aid).then(renderMain); break;
       case 'open-tip': e.stopPropagation(); openTipModal(actionEl.dataset.qid, actionEl.dataset.aid); break;
       case 'submit-answer': submitAnswer(actionEl.dataset.qid); break;
       case 'filter': AppState.feelingFilter = actionEl.dataset.filter; renderMain(); break;
@@ -1109,6 +1108,7 @@ function bindStaticEvents() {
   });
 
   document.getElementById('main-content').addEventListener('submit', e => {
+    if (e.target.id === 'compose-form') submitComposedQuestion(e);
     if (e.target.id === 'post-form') submitPost(e);
     if (e.target.classList.contains('comment-form')) { e.preventDefault(); submitComment(e.target); }
   });
@@ -1125,6 +1125,6 @@ function bindStaticEvents() {
 
   document.addEventListener('keydown', e => {
     if (e.key !== 'Escape') return;
-    closeAskModal(); closeTipModal(); closeQuestionDetail(); closeLevelUp(); closeBanModal();
+    closeTipModal(); closeLevelUp(); closeBanModal();
   });
 }
