@@ -9,8 +9,8 @@
    الحماية الحقيقية موجودة بسياسات RLS جوا schema.sql.
    ============================================================ */
 
-const SUPABASE_URL = 'https://wqbfpjavrnjizrbbsihz.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_G-Iss2BrP_Wsrdy7QBZrLQ_nh7zghRP';
+const SUPABASE_URL = 'https://wqbfpjavrnjizrbbsihz.supabase.co/';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndxYmZwamF2cm5qaXpyYmJzaWh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY1NTA1NjQsImV4cCI6MjEwMjEyNjU2NH0.dzageIYTQAnxS7Km5G77xnUWKj2JZKq8ypuKIXCI2Ro';
 
 if (SUPABASE_URL.includes('YOUR-PROJECT-REF') || SUPABASE_ANON_KEY.includes('YOUR-ANON')) {
   console.warn('⚠️ لسا ما عبّيت بيانات Supabase في supabase-client.js — راجع ملف SETUP.md');
