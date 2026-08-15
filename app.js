@@ -1,1217 +1,862 @@
-/* ============================================================
-   FEEL — app.js (النسخة الأونلاين مع Supabase)
-   ============================================================ */
-
-const AppState = {
-  route: 'home',
-  feelingFilter: 'all',
-  questionsScope: 'all', // 'all' | 'mine'
-  activeFeelingId: null,
-  activeQuestionId: null,
-  returnRoute: 'questions',
-  returnFeelingId: null,
-  tipContext: null,
-  searchQuery: '',
-  profile: null,
-  xpMap: {},
-  seenQuestionIds: new Set(),
-  likedQuestionIds: new Set(),
-  likedAnswerIds: new Set(),
-  likedPostIds: new Set(),
-  selectedAvatar: null,
-  channels: { notifications: null, questions: null, posts: null, answers: null, comments: null, xp: null },
-};
-
-document.addEventListener('DOMContentLoaded', async () => {
-  applyTheme(localStorage.getItem('feel_theme') || 'light');
-  buildAvatarPicker();
-  bindStaticEvents();
-  listenForNotificationClicks();
-
-  const session = await DB.getSession();
-  if (session) {
-    const ok = await loadCurrentUserContext();
-    if (ok) { enterApp(); handleDeepLinkFromUrl(); return; }
+// ================= أدوات عامة =================
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.innerHTML = `<span>${msg}</span>`;
+  t.classList.add('show');
+  clearTimeout(t._hideTimer);
+  t._hideTimer = setTimeout(()=> t.classList.remove('show'), 2600);
+}
+// يكبّر مربع النص تلقائياً مع الكتابة، ويحدّث عداد الأحرف تحته
+function growAndCount(el){
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 260) + 'px';
+  const counter = document.getElementById(el.id + '-count');
+  if(counter){
+    const max = parseInt(el.getAttribute('maxlength')) || 0;
+    const len = el.value.length;
+    counter.textContent = `${len}/${max}`;
+    counter.classList.toggle('warn', max>0 && len > max*0.85 && len <= max);
+    counter.classList.toggle('max', max>0 && len >= max);
   }
-  showAuth();
-});
-
-/* ============================================================
-   AUTH
-   ============================================================ */
-function showAuth() {
-  document.getElementById('view-auth').classList.remove('hidden');
-  document.getElementById('app-shell').classList.add('hidden');
-  tryAutofillSavedCredential();
-  renderSavedAccountsBox();
 }
 
-async function tryAutofillSavedCredential() {
-  try {
-    if (!navigator.credentials || !window.PasswordCredential) return;
-    const cred = await navigator.credentials.get({ password: true, mediation: 'optional' });
-    if (cred && cred.type === 'password') {
-      document.getElementById('login-username').value = cred.id;
-      document.getElementById('login-password').value = cred.password;
-    }
-  } catch (e) { /* تجاهل بهدوء */ }
-}
-
-/* ============================================================
-   تبديل الحساب — يحفظ جلسات الحسابات على هالجهاز بدون كلمات مرور
-   ============================================================ */
-const SAVED_ACCOUNTS_KEY = 'feel_saved_accounts';
-
-function loadSavedAccounts() {
-  try { return JSON.parse(localStorage.getItem(SAVED_ACCOUNTS_KEY) || '[]'); }
-  catch (e) { return []; }
-}
-function persistSavedAccounts(list) {
-  localStorage.setItem(SAVED_ACCOUNTS_KEY, JSON.stringify(list));
-}
-function upsertSavedAccount(profile, session) {
-  if (!session || !session.refresh_token) return;
-  const list = loadSavedAccounts().filter(a => a.user_id !== profile.id);
-  list.unshift({
-    user_id: profile.id, username: profile.username, display_name: profile.display_name,
-    avatar_emoji: profile.avatar_emoji, avatar_color: profile.avatar_color,
-    access_token: session.access_token, refresh_token: session.refresh_token,
+// ================= نافذة تأكيد مخصصة (تحل محل confirm/prompt المتصفح) =================
+let _modalResolve = null;
+function showConfirm(title, text, opts){
+  opts = opts || {};
+  return new Promise(resolve=>{
+    _modalResolve = resolve;
+    document.getElementById('confirmIcon').textContent = opts.icon || '⚠️';
+    document.getElementById('confirmTitle').textContent = title;
+    document.getElementById('confirmText').textContent = text || '';
+    document.getElementById('confirmOkBtn').textContent = opts.okText || 'تأكيد';
+    document.getElementById('confirmOkBtn').style.background = opts.danger === false ? 'var(--ink)' : 'var(--red)';
+    const inputWrap = document.getElementById('confirmInputWrap');
+    const input = document.getElementById('confirmInput');
+    inputWrap.style.display = opts.withInput ? 'block' : 'none';
+    input.value = opts.inputValue || '';
+    input.placeholder = opts.inputPlaceholder || 'اكتب هنا (اختياري)...';
+    document.getElementById('confirmOkBtn').onclick = () => {
+      const val = opts.withInput ? input.value.trim() : true;
+      _closeModalInternal();
+      resolve(val);
+    };
+    document.getElementById('modalOverlay').classList.add('show');
+    document.getElementById('confirmModal').classList.add('show');
   });
-  persistSavedAccounts(list.slice(0, 5)); // أقصى 5 حسابات محفوظة
 }
-function forgetSavedAccount(userId) {
-  persistSavedAccounts(loadSavedAccounts().filter(a => a.user_id !== userId));
-  renderSavedAccountsBox();
+function closeModal(){
+  _closeModalInternal();
+  if(_modalResolve) _modalResolve(false);
 }
-
-function renderSavedAccountsBox() {
-  const box = document.getElementById('saved-accounts-box');
-  const list = document.getElementById('saved-accounts-list');
-  const accounts = loadSavedAccounts().filter(a => !AppState.profile || a.user_id !== AppState.profile.id);
-  if (!accounts.length) { box.classList.add('hidden'); return; }
-  box.classList.remove('hidden');
-  list.innerHTML = accounts.map(a => `
-    <button type="button" class="saved-account-chip" data-action="switch-account" data-uid="${a.user_id}">
-      <span class="avatar avatar-sm" style="background:${a.avatar_color}22;">${a.avatar_emoji}</span>
-      <span class="saved-account-name">${escapeHtml(a.display_name)}<br><span class="saved-account-username">@${escapeHtml(a.username)}</span></span>
-      <span class="saved-account-forget" data-action="forget-account" data-uid="${a.user_id}" title="نسيان هذا الحساب">✕</span>
-    </button>
-  `).join('');
+function _closeModalInternal(){
+  document.getElementById('modalOverlay').classList.remove('show');
+  document.getElementById('confirmModal').classList.remove('show');
 }
 
-async function switchToAccount(userId) {
-  const account = loadSavedAccounts().find(a => a.user_id === userId);
-  if (!account) return;
-  showToast('🔄', 'جاري التبديل...');
-  const { data, error } = await sb.auth.setSession({ access_token: account.access_token, refresh_token: account.refresh_token });
-  if (error || !data.session) {
-    showToast('🚫', 'انتهت صلاحية هالحساب، لازم تسجّل دخول فيه من جديد.');
-    forgetSavedAccount(userId);
+// يشغّل حركة نبض القلب فوراً عند الضغط، بدون انتظار الشبكة
+function popHeart(el){
+  el.classList.add('heart-pop');
+  setTimeout(()=> el.classList.remove('heart-pop'), 350);
+}
+function timeAgo(iso){
+  if(!iso) return '';
+  const diff = (Date.now() - new Date(iso).getTime())/1000;
+  if(diff < 60) return 'الآن';
+  if(diff < 3600) return `قبل ${Math.floor(diff/60)} دقيقة`;
+  if(diff < 86400) return `قبل ${Math.floor(diff/3600)} ساعة`;
+  return `قبل ${Math.floor(diff/86400)} يوم`;
+}
+// تنظيف أي نص كتبه مستخدم قبل حقنه بـ HTML — يمنع XSS. يُستخدم على كل نص مستخدم بالتطبيق.
+function esc(str){
+  if(str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+// نسخة آمنة لتضمين نص داخل سمة onclick بصيغة '...' (تهرب من علامات الاقتباس والحقن معاً)
+function escAttr(str){
+  return esc(str).replace(/`/g, '&#96;');
+}
+// ترميز نص حر (يحتمل يحتوي على علامات اقتباس أو HTML) قبل تمريره كوسيط داخل onclick —
+// أأمن من escAttr لأنه ما يتأثر بترتيب فك تشفير HTML/JS بالمتصفح إطلاقاً.
+function b64(str){ return btoa(unescape(encodeURIComponent(str||''))); }
+function unb64(str){ try { return decodeURIComponent(escape(atob(str))); } catch(e){ return ''; } }
+
+// ================= الإشعارات (واجهة) =================
+function renderNotifBadge(){
+  const unreadNotifs = notifications.filter(n=>!n.read).length;
+  const unreadMsgs = conversations.reduce((s,c)=>s+c.unread,0);
+  const unread = unreadNotifs + unreadMsgs;
+  [document.getElementById('notifBadgeM'), document.getElementById('notifBadgeD')].forEach(el=>{
+    if(!el) return;
+    if(unread>0){ el.style.display='flex'; el.textContent = unread>9?'9+':unread; }
+    else { el.style.display='none'; }
+  });
+}
+function toggleNotifPanel(){
+  if(requireLogin()) return;
+  notifPanelOpen = !notifPanelOpen;
+  const panel = document.getElementById('notifPanel');
+  panel.classList.toggle('show', notifPanelOpen);
+  if(notifPanelOpen){
+    if(notifications.length === 0){
+      panel.innerHTML = `<div class="empty-state" style="padding:26px;">لا توجد إشعارات بعد</div>`;
+    } else {
+      panel.innerHTML = notifications.map((n,i) => `
+        <div class="notif-item ${n.read?'':'unread'}" style="cursor:pointer;" onclick="openNotificationAt(${i})">
+          <span>🔔</span>
+          <div><div>${esc(n.text)}</div><div class="muted" style="font-size:10px; margin-top:3px;">${timeAgo(n.created_at)}</div></div>
+        </div>
+      `).join('');
+      const unreadIds = notifications.filter(n=>!n.read).map(n=>n.id);
+      if(unreadIds.length){
+        sb.from('notifications').update({read:true}).in('id', unreadIds).then(()=>{
+          notifications.forEach(n=>n.read=true);
+          renderNotifBadge();
+        });
+      }
+    }
+  }
+}
+function openNotificationAt(i){
+  const n = notifications[i];
+  if(!n) return;
+  notifPanelOpen = false;
+  document.getElementById('notifPanel').classList.remove('show');
+  if(n.post_id){
+    const post = publicPosts.find(p => p.id === n.post_id);
+    switchTab(post && post.type === 'quote' ? 'quotes' : 'questions');
+    if(n.type === 'answer' && post && post.type === 'qa'){
+      setTimeout(()=> openAllAnswers(post.id), 250);
+    }
+  } else if(n.confession_id){
+    switchTab('confessions');
+  }
+}
+
+// أفاتار موحّد: يعرض الصورة الحقيقية لو موجودة، وإلا الحروف كما كان
+function avatarHtml(avatarUrl, initials, extraClass){
+  if(avatarUrl) return `<div class="avatar ${extraClass||''}"><img class="avatar-img" src="${avatarUrl}" alt="صورة شخصية"></div>`;
+  return `<div class="avatar ${extraClass||''}" role="img" aria-label="صورة شخصية">${initials||'?'}</div>`;
+}
+// يضيف onclick لفتح صفحة الشخص — يُستخدم على أي أفاتار/اسم قابل للزيارة
+function up(userId){
+  return userId ? `onclick="viewProfile('${userId}')" style="cursor:pointer;"` : '';
+}
+function render(){
+  if(!currentUser) return;
+  let html = '';
+  if(currentTab === 'profile') html = isGuest ? renderGuestProfile() : renderProfile();
+  else if(currentTab === 'questions') html = renderQuestions();
+  else if(currentTab === 'quotes') html = renderQuotesPage();
+  else if(currentTab === 'confessions') html = renderConfessions();
+  else if(currentTab === 'messages') html = renderMessagesPage();
+
+  document.getElementById('content').innerHTML = html;
+  document.getElementById('desktopContent').innerHTML = html;
+  document.getElementById('desktopSidebarRight').innerHTML = renderDesktopSidebar();
+
+  document.getElementById('dCoinCount').textContent = currentUser.coins;
+  document.getElementById('dCoinWidget').textContent = currentUser.coins + ' 🪙';
+  renderNotifBadge();
+}
+
+function switchTab(tab){
+  if(tab === 'messages' && requireLogin()) return;
+  currentTab = tab;
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.toggle('active', n.dataset.tab === tab));
+  if(tab === 'quotes') loadFeatured();
+  if(tab === 'messages') loadConversations();
+  ['content','desktopContent'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(el){ el.classList.remove('content-fade'); void el.offsetWidth; el.classList.add('content-fade'); }
+  });
+  render();
+}
+
+function renderDesktopSidebar(){
+  return `
+    ${featuredPost ? `
+    <div style="background:var(--paper);border:1.5px solid var(--line-on-white);border-radius:15px;padding:13px;margin-bottom:12px;">
+      <span style="font-size:9.5px;font-weight:800;color:var(--red);margin-bottom:7px;display:block;">⭐ الاقتباس المميز اليوم</span>
+      <div style="font-family:'El Messiri',sans-serif;font-weight:600;font-size:12px;line-height:1.5;color:var(--ink);">${esc(featuredPost.text)}</div>
+      <div class="muted" style="font-size:10px; margin-top:8px;" ${up(featuredPost.anon?null:featuredPost.author_id)}>— ${featuredPost.anon ? 'مجهول' : esc(featuredPost.author_name)}</div>
+    </div>` : ''}
+    <div style="background:var(--paper);border:1.5px solid var(--line-on-white);border-radius:15px;padding:13px;">
+      <span style="font-size:9.5px;font-weight:800;color:var(--red);margin-bottom:7px;display:block;">👥 أشخاص بالمنصة</span>
+      ${peopleDirectory.length === 0 ? `<div class="muted" style="font-size:11px;">ما فيه أعضاء جدد لهسا</div>` :
+        peopleDirectory.slice(0,4).map(p=>`
+        <div class="d-suggest-row">
+          <span ${up(p.id)}>${p.avatar_url ? `<div class="avatar" style="width:28px;height:28px;font-size:11px;border-radius:9px;"><img class="avatar-img" src="${esc(p.avatar_url)}"></div>` : `<div class="avatar" style="width:28px;height:28px;font-size:11px;border-radius:9px;">${esc(p.initials)}</div>`}</span>
+          <div ${up(p.id)}><b>${esc(p.name)}</b><span>${p.vip?'عضو VIP':'عضو بالمنصة'}</span></div>
+          <button class="d-follow-btn ${followingIds.has(p.id)?'following':''}" onclick="toggleFollow('${p.id}')">${followingIds.has(p.id)?'متابَع':'متابعة'}</button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+// ================= بحث موحّد =================
+function openGlobalSearch(prefill){
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('searchSheet').classList.add('show');
+  const input = document.getElementById('globalSearchInput');
+  input.value = prefill || '';
+  onGlobalSearch(input.value);
+  setTimeout(()=> input.focus(), 250);
+}
+function onGlobalSearch(val){
+  const term = val.trim();
+  const box = document.getElementById('globalSearchResults');
+  if(!term){ box.innerHTML = `<div class="empty-state" style="padding:24px;">اكتب شي تدور عليه — سؤال، اقتباس، اعتراف، أو اسم شخص</div>`; return; }
+
+  const quotes = publicPosts.filter(p => p.type==='quote' &&
+    ((p.text||'').includes(term) || (!p.anon && (p.author_name||'').includes(term))));
+  const questions = publicPosts.filter(p => p.type==='qa' &&
+    ((p.q||'').includes(term) || (answersByPost[p.id]||[]).some(a=>(a.text||'').includes(term)) || (!p.anon && (p.asker_name||'').includes(term))));
+  const confs = confessions.filter(c => (c.text||'').includes(term));
+  const people = peopleDirectory.filter(p => (p.name||'').includes(term));
+
+  if(quotes.length===0 && questions.length===0 && confs.length===0 && people.length===0){
+    box.innerHTML = `<div class="empty-state" style="padding:24px;"><div class="big">🔍</div>ما فيه نتائج مطابقة</div>`;
     return;
   }
-  upsertSavedAccount({ id: account.user_id, username: account.username, display_name: account.display_name, avatar_emoji: account.avatar_emoji, avatar_color: account.avatar_color }, data.session);
-  const ok = await loadCurrentUserContext();
-  if (!ok) { showToast('🚫', 'صار في خطأ بالتبديل.'); return; }
-  enterApp();
-  showToast('👋', `رجعت لحساب ${AppState.profile.display_name}.`);
-}
 
-async function openAccountSwitcher() {
-  teardownGlobalRealtime();
-  await sb.auth.signOut({ scope: 'local' }); // يسكر الجلسة الحالية بس من هالجهاز، بدون ما يمسحها من قائمة الحسابات المحفوظة
-  AppState.profile = null;
-  showAuth();
-}
-
-async function enterApp() {
-  document.getElementById('view-auth').classList.add('hidden');
-  document.getElementById('app-shell').classList.remove('hidden');
-  document.getElementById('admin-nav-link').classList.toggle('hidden', !(AppState.profile && AppState.profile.is_admin));
-  navigateTo('home');
-  setupGlobalRealtime();
-  maybeAskPushPermission();
-}
-
-/* ============================================================
-   PUSH NOTIFICATIONS — تصل حتى لو الموقع مسكّر (بشرط تفعيلها مرة)
-   ============================================================ */
-function urlBase64ToUint8Array(base64String) {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = atob(base64);
-  return Uint8Array.from([...rawData].map(c => c.charCodeAt(0)));
-}
-
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return null;
-  try { return await navigator.serviceWorker.register('/sw.js'); }
-  catch (e) { console.error('service worker registration failed', e); return null; }
-}
-
-async function maybeAskPushPermission() {
-  if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
-  if (Notification.permission === 'denied') return;
-  if (localStorage.getItem('feel_push_dismissed') === '1') return;
-  if (Notification.permission === 'granted') { await subscribeToPush(); return; }
-  showPushPrompt();
-}
-
-function showPushPrompt() {
-  const container = document.getElementById('toast-container');
-  const box = document.createElement('div');
-  box.className = 'toast push-prompt';
-  box.innerHTML = `
-    <span>🔔</span>
-    <span>خلي FEEL يبعتلك إشعارات حتى وانت مسكّر الموقع؟</span>
-    <div class="push-prompt-actions">
-      <button class="btn btn-primary btn-sm" id="push-allow-btn">فعّل</button>
-      <button class="btn btn-ghost btn-sm" id="push-dismiss-btn">لأ شكرًا</button>
-    </div>
-  `;
-  container.appendChild(box);
-  document.getElementById('push-allow-btn').addEventListener('click', async () => {
-    box.remove();
-    await subscribeToPush();
-  });
-  document.getElementById('push-dismiss-btn').addEventListener('click', () => {
-    box.remove();
-    localStorage.setItem('feel_push_dismissed', '1');
-  });
-}
-
-async function subscribeToPush() {
-  try {
-    const permission = await Notification.requestPermission();
-    if (permission !== 'granted') return;
-    const reg = await registerServiceWorker();
-    if (!reg) return;
-    const existing = await reg.pushManager.getSubscription();
-    const sub = existing || await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-    });
-    await DB.savePushSubscription(AppState.profile.id, sub);
-    showToast('🔔', 'تمام، رح توصلك إشعارات حتى لو الموقع مسكّر.');
-  } catch (e) {
-    console.error('push subscribe failed', e);
-  }
-}
-
-function listenForNotificationClicks() {
-  if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.addEventListener('message', event => {
-    if (event.data && event.data.type === 'FEEL_NOTIFICATION_CLICK') {
-      if (AppState.profile) navigateTo(event.data.route, event.data.params || {});
-    }
-  });
-}
-
-function handleDeepLinkFromUrl() {
-  const params = new URLSearchParams(window.location.search);
-  const route = params.get('route');
-  if (!route) return;
-  let routeParams = {};
-  try { routeParams = JSON.parse(params.get('params') || '{}'); } catch (e) {}
-  window.history.replaceState({}, '', window.location.pathname);
-  setTimeout(() => { if (AppState.profile) navigateTo(route, routeParams); }, 300);
-}
-
-/* ============================================================
-   REALTIME — تحديث مباشر بدون Refresh
-   ============================================================ */
-function setupGlobalRealtime() {
-  teardownGlobalRealtime();
-  if (!AppState.profile) return;
-
-  AppState.channels.notifications = DB.subscribeToNotifications(AppState.profile.id, notif => {
-    refreshNotifBadge();
-    showToast(notif.icon, notif.text);
-  });
-
-  AppState.channels.questions = DB.subscribeToQuestions(debounce(() => {
-    if (['home', 'feelings', 'feeling-detail', 'questions'].includes(AppState.route)) renderMain();
-  }, 400));
-
-  AppState.channels.posts = DB.subscribeToPosts(debounce(() => {
-    if (AppState.route === 'posts') renderMain();
-  }, 400));
-
-  AppState.channels.xp = DB.subscribeToMyXp(AppState.profile.id, payload => {
-    const row = payload.new;
-    if (!row) return;
-    const feelingId = row.feeling_id;
-    const newXp = row.xp;
-    const oldXp = AppState.xpMap[feelingId] || 0;
-    if (newXp === oldXp) return;
-    const beforeLevel = getLevelInfo(oldXp).level;
-    const afterLevel = getLevelInfo(newXp).level;
-    AppState.xpMap[feelingId] = newXp;
-
-    if (afterLevel > beforeLevel) {
-      DB.notify(AppState.profile.id, '✨', `وصلت للمستوى ${afterLevel} في ${FEELING_MAP[feelingId].name}.`, 'feeling-detail', { activeFeelingId: feelingId });
-      showLevelUp(feelingId, afterLevel);
-    }
-    if (['home', 'feelings', 'feeling-detail', 'profile'].includes(AppState.route)) renderMain();
-  });
-}
-
-function teardownGlobalRealtime() {
-  Object.keys(AppState.channels).forEach(key => {
-    if (AppState.channels[key]) { DB.unsubscribe(AppState.channels[key]); AppState.channels[key] = null; }
-  });
-}
-
-function debounce(fn, ms) {
-  let t;
-  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
-}
-
-async function loadCurrentUserContext() {
-  const profile = await DB.getMyProfile();
-  if (!profile) return false;
-  if (profile.is_banned) {
-    await DB.signOut();
-    showToast('🚫', 'هذا الحساب محظور: ' + (profile.ban_reason || 'مخالفة قواعد المجتمع.'));
-    return false;
-  }
-  AppState.profile = profile;
-  AppState.xpMap = await DB.fetchXpMap(profile.id);
-  AppState.seenQuestionIds = await DB.fetchMySeenQuestionIds(profile.id);
-  AppState.likedQuestionIds = await DB.fetchMyLikedQuestionIds(profile.id);
-  AppState.likedAnswerIds = await DB.fetchMyLikedAnswerIds(profile.id);
-  AppState.likedPostIds = await DB.fetchMyLikedPostIds(profile.id);
-  return true;
-}
-
-function setBtnLoading(btn, loading, loadingText) {
-  if (!btn) return;
-  if (loading) { btn.dataset.label = btn.textContent; btn.textContent = loadingText || 'جاري التحميل...'; btn.disabled = true; }
-  else { btn.textContent = btn.dataset.label || btn.textContent; btn.disabled = false; }
-}
-
-async function handleLogin(e) {
-  e.preventDefault();
-  const errEl = document.getElementById('login-error');
-  errEl.classList.add('hidden');
-  const username = document.getElementById('login-username').value.trim();
-  const password = document.getElementById('login-password').value;
-  if (!username || !password) { errEl.textContent = 'عبّي اسم المستخدم وكلمة المرور.'; errEl.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('login-submit-btn');
-  setBtnLoading(btn, true, 'جاري الدخول...');
-  const { data, error } = await DB.signInWithUsername(username, password);
-  setBtnLoading(btn, false);
-
-  if (error) { errEl.textContent = error.message; errEl.classList.remove('hidden'); return; }
-
-  const ok = await loadCurrentUserContext();
-  if (!ok) { errEl.textContent = 'صار في خطأ، جرب تاني.'; errEl.classList.remove('hidden'); return; }
-  saveCredentialForBrowser(username, password, AppState.profile.display_name);
-  upsertSavedAccount(AppState.profile, data.session);
-  document.getElementById('login-form').reset();
-  enterApp();
-  showToast('👋', `أهلًا فيك، ${AppState.profile.display_name}.`);
-}
-
-async function handleSignup(e) {
-  e.preventDefault();
-  const errEl = document.getElementById('signup-error');
-  const okEl = document.getElementById('signup-success');
-  errEl.classList.add('hidden'); okEl.classList.add('hidden');
-
-  const username = document.getElementById('signup-username').value.trim().toLowerCase();
-  const displayName = document.getElementById('signup-displayname').value.trim();
-  const email = document.getElementById('signup-email').value.trim();
-  const password = document.getElementById('signup-password').value;
-
-  if (!/^[a-z0-9_]{3,20}$/.test(username)) {
-    errEl.textContent = 'اسم المستخدم لازم يكون 3-20 حرف/رقم إنجليزي بدون مسافات.'; errEl.classList.remove('hidden'); return;
-  }
-  if (!displayName) { errEl.textContent = 'اكتب الاسم الظاهر.'; errEl.classList.remove('hidden'); return; }
-  if (!email.includes('@')) { errEl.textContent = 'اكتب إيميل صحيح.'; errEl.classList.remove('hidden'); return; }
-  if (password.length < 6) { errEl.textContent = 'كلمة المرور لازم تكون 6 أحرف على الأقل.'; errEl.classList.remove('hidden'); return; }
-  if (!AppState.selectedAvatar) { errEl.textContent = 'اختر أفاتار.'; errEl.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('signup-submit-btn');
-  setBtnLoading(btn, true, 'جاري إنشاء الحساب...');
-  const { data, error } = await DB.signUp({
-    username, email, password, displayName,
-    avatarEmoji: AppState.selectedAvatar.emoji, avatarColor: AppState.selectedAvatar.color,
-  });
-  setBtnLoading(btn, false);
-
-  if (error) { errEl.textContent = translateAuthError(error.message); errEl.classList.remove('hidden'); return; }
-
-  if (data.session) {
-    const ok = await loadCurrentUserContext();
-    if (ok) {
-      saveCredentialForBrowser(username, password, AppState.profile.display_name);
-      upsertSavedAccount(AppState.profile, data.session);
-      enterApp();
-      showToast('🎉', 'تم إنشاء حسابك! أهلًا فيك بـ FEEL.');
-      return;
-    }
-  }
-  okEl.textContent = 'تم إنشاء الحساب! تحقق من إيميلك لتفعيل الحساب، وبعدين سجّل دخول.';
-  okEl.classList.remove('hidden');
-  document.getElementById('signup-form').reset();
-  switchAuthTab('login');
-}
-
-/* ---------- حفظ بيانات الدخول بمدير كلمات المرور تبع المتصفح ---------- */
-async function saveCredentialForBrowser(username, password, displayName) {
-  try {
-    if (!window.PasswordCredential) return; // المتصفح ما بيدعم الميزة (متصفحات مبنية على Chromium بتدعمها)
-    const cred = new PasswordCredential({ id: username, password, name: displayName || username });
-    await navigator.credentials.store(cred);
-  } catch (e) { /* تجاهل بهدوء — مش ميزة أساسية */ }
-}
-
-function translateAuthError(msg) {
-  if (/already registered|already exists/i.test(msg)) return 'هذا الإيميل مسجّل مسبقًا.';
-  if (/password/i.test(msg)) return 'كلمة المرور غير صالحة (6 أحرف على الأقل).';
-  return msg || 'صار في خطأ، جرب تاني.';
-}
-
-function switchAuthTab(tab) {
-  document.querySelectorAll('.auth-tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
-  document.getElementById('login-form').classList.toggle('hidden', tab !== 'login');
-  document.getElementById('signup-form').classList.toggle('hidden', tab !== 'signup');
-}
-
-function buildAvatarPicker() {
-  const container = document.getElementById('avatar-picker');
-  container.innerHTML = AVATAR_OPTIONS.map((a, i) => `
-    <button type="button" class="avatar-option" data-idx="${i}" style="background:${a.color}22;">${a.emoji}</button>
-  `).join('');
-  container.addEventListener('click', e => {
-    const btn = e.target.closest('.avatar-option');
-    if (!btn) return;
-    AppState.selectedAvatar = AVATAR_OPTIONS[+btn.dataset.idx];
-    container.querySelectorAll('.avatar-option').forEach(b => b.classList.remove('selected'));
-    btn.classList.add('selected');
-  });
-}
-
-async function logout() {
-  // زي فيسبوك/انستقرام: تسجيل الخروج بس بيسكر الجلسة الحالية،
-  // وبيضل الحساب محفوظ بقائمة "تبديل الحساب" حتى ترجعله بضغطة وحدة.
-  // الحذف الكامل بيصير بس لما تدوس ✕ جنب الحساب.
-  await openAccountSwitcher();
-}
-
-/* ============================================================
-   DELETE HANDLERS (owner or admin — RLS enforces this again server-side)
-   ============================================================ */
-async function deleteQuestionHandler(qid) {
-  if (!confirm('متأكد إنك بدك تحذف هالسؤال؟ هالإجراء ما بينرجع.')) return;
-  const { error } = await DB.deleteQuestion(qid);
-  if (error) { showToast('🚫', 'ما قدرنا نحذف السؤال.'); return; }
-  showToast('🗑', 'تم حذف السؤال.');
-  if (AppState.route === 'question-detail' && AppState.activeQuestionId === qid) {
-    navigateTo(AppState.returnRoute || 'questions', { activeFeelingId: AppState.returnFeelingId });
-  } else {
-    renderMain();
-  }
-}
-async function deleteAnswerHandler(aid) {
-  if (!confirm('متأكد إنك بدك تحذف هالإجابة؟ هالإجراء ما بينرجع.')) return;
-  const { error } = await DB.deleteAnswer(aid);
-  if (error) { showToast('🚫', 'ما قدرنا نحذف الإجابة.'); return; }
-  showToast('🗑', 'تم حذف الإجابة.');
-  if (AppState.route === 'question-detail') renderMain();
-}
-async function deletePostHandler(pid) {
-  if (!confirm('متأكد إنك بدك تحذف هالبوست؟ هالإجراء ما بينرجع.')) return;
-  const { error } = await DB.deletePost(pid);
-  if (error) { showToast('🚫', 'ما قدرنا نحذف البوست.'); return; }
-  showToast('🗑', 'تم حذف البوست.');
-  renderMain();
-}
-async function deleteCommentHandler(cid, pid) {
-  if (!confirm('متأكد إنك بدك تحذف هالتعليق؟')) return;
-  const { error } = await DB.deleteComment(cid);
-  if (error) { showToast('🚫', 'ما قدرنا نحذف التعليق.'); return; }
-  showToast('🗑', 'تم حذف التعليق.');
-  renderComments(pid);
-}
-
-/* ============================================================
-   ROUTER
-   ============================================================ */
-function navigateTo(route, params = {}) {
-  if (route === 'admin' && !(AppState.profile && AppState.profile.is_admin)) return;
-  if (AppState.route === 'question-detail' && route !== 'question-detail' && AppState.channels.answers) {
-    DB.unsubscribe(AppState.channels.answers);
-    AppState.channels.answers = null;
-  }
-  AppState.route = route;
-  Object.assign(AppState, params);
-  renderMain();
-  updateNavActive();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-function updateNavActive() {
-  document.querySelectorAll('.side-link, .bottom-nav-btn').forEach(el => {
-    const nav = el.dataset.nav;
-    el.classList.toggle('active', nav && (nav === AppState.route ||
-      (nav === 'feelings' && AppState.route === 'feeling-detail') ||
-      (nav === 'questions' && AppState.route === 'question-detail')));
-  });
-  refreshNotifBadge();
-}
-
-async function renderMain() {
-  const main = document.getElementById('main-content');
-  main.innerHTML = `<div class="loading-spinner">جاري التحميل...</div>`;
   let html = '';
-  try {
-    switch (AppState.route) {
-      case 'home': html = await renderHome(); break;
-      case 'feelings': html = await renderFeelingsPage(); break;
-      case 'feeling-detail': html = await renderFeelingDetail(AppState.activeFeelingId); break;
-      case 'questions': html = await renderQuestionsPage(); break;
-      case 'question-detail': html = await renderQuestionDetailPage(AppState.activeQuestionId); break;
-      case 'posts': html = await renderPostsPage(); break;
-      case 'profile': html = await renderProfile(); break;
-      case 'notifications': html = await renderNotifications(); break;
-      case 'admin': html = await renderAdmin(); break;
-      default: html = await renderHome();
-    }
-  } catch (err) {
-    console.error(err);
-    html = `<div class="empty-state"><div class="empty-state-emoji">⚠️</div><div class="empty-state-title">صار في خطأ بالتحميل</div><div class="empty-state-sub">تأكد إنك عبّيت بيانات Supabase بشكل صحيح بملف supabase-client.js</div></div>`;
+  if(people.length){
+    html += `<div class="eyebrow">أشخاص 👥</div>`;
+    html += people.slice(0,6).map(p=>`
+      <div class="inbox-item" style="cursor:default;">
+        <span ${up(p.id)}>${avatarHtml(p.avatar_url, p.initials, '')}</span>
+        <div style="flex:1;" ${up(p.id)}><b style="font-family:'El Messiri',sans-serif; font-size:12.5px; color:var(--ink);">${esc(p.name)}</b></div>
+        <button class="d-follow-btn ${followingIds.has(p.id)?'following':''}" onclick="toggleFollow('${p.id}')">${followingIds.has(p.id)?'متابَع':'متابعة'}</button>
+      </div>
+    `).join('');
   }
-  main.innerHTML = `<div class="view-fade">${html}</div>`;
+  if(quotes.length){
+    html += `<div class="eyebrow">اقتباسات ❝</div><div class="tile-grid">${quotes.slice(0,10).map(renderTile).join('')}</div>`;
+  }
+  if(questions.length){
+    html += `<div class="eyebrow">أسئلة ❓</div>${questions.slice(0,10).map(renderQATile).join('')}`;
+  }
+  if(confs.length){
+    html += `<div class="eyebrow">اعترافات 🎭</div>${confs.slice(0,10).map(renderConfessionCard).join('')}`;
+  }
+  box.innerHTML = html;
 }
 
-/* ============================================================
-   HOME
-   ============================================================ */
-async function renderHome() {
-  const profile = AppState.profile;
-  const level = getLevelInfo(totalXpFromMap(AppState.xpMap));
-  const topFeelings = [...FEELINGS].filter(f => !f.gradient)
-    .sort((a, b) => (AppState.xpMap[b.id] || 0) - (AppState.xpMap[a.id] || 0)).slice(0, 4);
-
-  const allQuestions = await DB.fetchQuestions();
-  const worthAnswering = pickWorthAnswering(allQuestions).slice(0, 5);
-
+// ---- صفحة الأسئلة ----
+let questionTopic = 'الكل';
+function computeQuestionTopics(){
+  const seedNames = topics.map(t=>t.name);
+  const extra = new Set();
+  publicPosts.forEach(p=>{ if(p.type==='qa' && p.topic && !seedNames.includes(p.topic)) extra.add(p.topic); });
+  return [...topics, ...[...extra].map(name=>({name, emoji:'#'}))];
+}
+function setQuestionTopic(name){
+  questionTopic = name;
+  render();
+}
+function renderQuestions(){
+  const allQas = publicPosts.filter(p=>p.type==='qa');
+  const qas = questionTopic === 'الكل' ? allQas : allQas.filter(p=>p.topic === questionTopic);
+  const topicsList = computeQuestionTopics();
   return `
-    <section class="hero">
-      <h1 class="hero-title">كيف بتتطور اليوم؟</h1>
-      <p class="hero-sub">كل محادثة ممكن تعلّمك شي جديد عن نفسك.</p>
-      <div class="user-card">
-        <div class="avatar avatar-lg" style="background:${profile.avatar_color}22;">${profile.avatar_emoji}</div>
-        <div class="user-card-info">
-          <div class="user-card-name">${escapeHtml(profile.display_name)}</div>
-          <div class="user-card-meta">المستوى ${level.level} · ${totalXpFromMap(AppState.xpMap).toLocaleString()} XP إجمالي</div>
-        </div>
-        <div class="user-card-stats">
-          <div class="stat"><div class="stat-num">${level.level}</div><div class="stat-label">المستوى</div></div>
-          <div class="stat"><div class="stat-num">${profile.tips_received}</div><div class="stat-label">تقديرات مستلمة</div></div>
-        </div>
-        <div class="progress-wrap">
-          <div class="progress-labels"><span>المستوى ${level.level}</span><span>${level.xp.toLocaleString()} / ${level.isMax ? level.xp.toLocaleString() : level.max.toLocaleString()} XP</span></div>
-          <div class="progress-track"><div class="progress-fill" style="width:${level.pct}%"></div></div>
-        </div>
-      </div>
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div><h2 class="section-title">استكشف مشاعرك</h2><p class="section-sub">كل شعور مهارة بتنتظر إنك تفهمها.</p></div>
-        <button class="btn btn-ghost btn-sm" data-nav="feelings">شوف كل الـ 17</button>
-      </div>
-      <div class="feelings-grid">${topFeelings.map(f => feelingCardHtml(f)).join('')}</div>
-    </section>
-
-    <section>
-      <div class="section-head">
-        <div><h2 class="section-title">أسئلة تستاهل جواب</h2><p class="section-sub">أسئلة حقيقية من ناس عم يفكروا بشي مهم.</p></div>
-        <button class="btn btn-primary btn-sm" data-nav="questions">اسأل شيئًا</button>
-      </div>
-      <div class="question-feed">${worthAnswering.map(q => questionCardHtml(q)).join('') || emptyStateHtml('home')}</div>
-    </section>
+    <div class="page-title">الأسئلة</div>
+    <div class="muted" style="font-size:12px; margin:-2px 0 14px 0;">أسئلة مفتوحة من الجميع — جاوب على أي سؤال يعجبك</div>
+    <div class="composer-trigger" onclick="openComposerMode('ask')">
+      <span>عندك سؤال؟ اطرحه الحين...</span>
+      <div class="composer-plus">+</div>
+    </div>
+    <div class="topic-row" style="margin-top:14px;">
+      ${topicsList.map(t=>`<div class="topic-chip ${questionTopic===t.name?'active':''}" onclick="setQuestionTopic('${escAttr(t.name)}')">${t.emoji} ${esc(t.name)}</div>`).join('')}
+    </div>
+    <div style="margin-top:4px;">
+      ${qas.length===0 ? `<div class="empty-state"><div class="big">❓</div>ما فيه أسئلة بهالفئة بعد<br>كن أول شخص يسأل</div>` :
+        qas.map(it => renderQATile(it)).join('')}
+    </div>
   `;
 }
+function renderQATile(it){
+  const liked = myLikedPostIds.has(it.id);
+  const isOwner = it.asked_by === currentUser.id;
+  const answers = answersByPost[it.id] || [];
+  const hasAnswers = answers.length > 0;
+  const shown = answers.slice(0, 3);
 
-function pickWorthAnswering(questions) {
-  const scored = questions.map(q => ({ q, score: q.likes_count }));
-  scored.sort((a, b) => b.score - a.score);
-  return scored.map(s => s.q);
-}
+  const answersHtml = hasAnswers ? `
+    <div class="answers-list">
+      ${shown.map(a => `
+        <div class="comment-item" style="padding:8px 2px;">
+          <span ${up(a.user_id)}>${avatarHtml(a.user_avatar, a.user_initials, 'avatar-tiny')}</span>
+          <div class="comment-body">
+            <b ${up(a.user_id)} style="font-size:12px;">${esc(a.user_name) || 'مستخدم'}</b>
+            <div class="ctext">${esc(a.text)}</div>
+          </div>
+        </div>
+      `).join('')}
+      ${answers.length > 3
+        ? `<div class="answers-viewall" onclick="openAllAnswers('${it.id}')">مشاهدة كل الإجابات (${answers.length}) ←</div>`
+        : (answers.length > 1 ? `<div class="answers-viewall" onclick="openAllAnswers('${it.id}')">عرض الكل</div>` : '')}
+    </div>
+  ` : '';
 
-/* ============================================================
-   FEELINGS
-   ============================================================ */
-async function renderFeelingsPage() {
-  return `
-    <section class="section-head"><div><h1 class="section-title" style="font-size:1.9rem;">استكشف مشاعرك</h1><p class="section-sub">كل شعور مهارة بتنتظر إنك تفهمها.</p></div></section>
-    <div class="feelings-grid">${FEELINGS.map(f => feelingCardHtml(f)).join('')}</div>
-  `;
-}
-
-function feelingVars(feeling) {
-  const c = feeling.gradient ? 'var(--brand-3)' : feeling.color;
-  return `--fc:${c}; --fc-bg: color-mix(in srgb, ${c} 14%, var(--bg-elevated));`;
-}
-
-function feelingCardHtml(feeling) {
-  const xp = AppState.xpMap[feeling.id] || 0;
-  const info = getLevelInfo(xp);
-  return `
-    <button class="feeling-card" style="${feelingVars(feeling)}" data-action="open-feeling" data-feeling="${feeling.id}">
-      <div class="feeling-card-top"><span class="feeling-emoji">${feeling.emoji}</span><span class="feeling-level-badge">Lv ${info.level}</span></div>
-      <div class="feeling-name">${feeling.name}</div>
-      <div class="feeling-desc">${feeling.desc}</div>
-      <div class="feeling-card-progress"><div class="progress-track"><div class="progress-fill tinted" style="width:${info.pct}%"></div></div></div>
-      <div class="feeling-card-xp"><span>${info.isMax ? info.xp.toLocaleString() : info.xp.toLocaleString() + ' / ' + info.max.toLocaleString()} XP</span></div>
-    </button>
-  `;
-}
-
-async function renderFeelingDetail(feelingId) {
-  const feeling = FEELING_MAP[feelingId];
-  if (!feeling) return renderFeelingsPage();
-  const info = getLevelInfo(AppState.xpMap[feeling.id] || 0);
-  const questions = await DB.fetchQuestions({ feelingId: feeling.id });
-  const ordered = orderBySeenStatus(questions);
-
-  return `
-    <div class="feeling-hero" style="${feelingVars(feeling)}">
-      <div class="feeling-hero-emoji">${feeling.emoji}</div>
-      <h1 class="feeling-hero-name">${feeling.name}</h1>
-      <p class="feeling-hero-tagline">${feeling.tagline}</p>
-      <div class="feeling-hero-stats">
-        <div class="stat"><div class="stat-num">${info.level}</div><div class="stat-label">المستوى الحالي</div></div>
-        <div class="stat"><div class="stat-num">${info.xp.toLocaleString()}</div><div class="stat-label">XP</div></div>
-        <div class="progress-wrap" style="flex:1; min-width:180px;">
-          <div class="progress-labels"><span>المستوى ${info.level}</span><span>${info.isMax ? info.xp.toLocaleString() : info.xp.toLocaleString() + ' / ' + info.max.toLocaleString()}</span></div>
-          <div class="progress-track"><div class="progress-fill tinted" style="width:${info.pct}%"></div></div>
+  if(hasAnswers){
+    return `
+      <div class="card">
+        <div class="card-head">
+          <span ${up(it.anon?null:it.asked_by)}>${it.anon ? `<div class="avatar anon">؟</div>` : avatarHtml(it.asker_avatar, it.asker_initials, '')}</span>
+          <div class="name-line">
+            <b ${up(it.anon?null:it.asked_by)}>${it.anon ? 'سؤال مجهول' : esc(it.asker_name)}</b>
+            <small>${timeAgo(it.created_at)}${it.is_shoutout ? ' · 📢 شوت أوت' : ''}${it.topic && it.topic!=='الكل' ? ' · #'+esc(it.topic) : ''}</small>
+          </div>
+        </div>
+        <div class="q-bubble">${esc(it.q)}</div>
+        ${answersHtml}
+        <div style="display:flex; gap:8px; margin-bottom:4px;">
+          <button class="btn-ghost" style="margin-top:2px; width:auto; padding:0 16px; font-size:12px;" onclick="openAnswer('${it.id}')">➕ أضف إجابتك</button>
+          ${isOwner ? `<button class="btn-ghost" style="margin-top:2px; width:auto; padding:0 16px; font-size:12px;" onclick="deletePost('${it.id}')">حذف</button>` : ''}
+        </div>
+        <div class="card-foot">
+          <div class="foot-btn ${liked?'liked':''}"><span onclick="popHeart(this); toggleLike('${it.id}')">♥</span> <span onclick="openLikers('post','${it.id}')" style="cursor:pointer;">${it.likes}</span></div>
+          <div class="foot-btn" onclick="openComments('post','${it.id}')">💬 <span>${it.comments||0}</span></div>
+          <div class="foot-btn" onclick="openSharePicker('${b64(it.q+' — '+shown[0].text)}')">📤 مشاركة</div>
+          <div class="foot-btn" onclick="nativeShare('${b64(it.q+' — '+shown[0].text)}')">🔗</div>
+          ${isOwner ? `<div class="foot-btn" onclick="deletePost('${it.id}')">🗑️</div>` : `<div class="foot-btn" onclick="reportContent('post','${it.id}')">🚩</div>`}
         </div>
       </div>
-    </div>
-    ${composerHtml(feeling.id)}
-    <div class="section-head">
-      <div><h2 class="section-title">أسئلة عن ${feeling.name}</h2></div>
-    </div>
-    <div class="question-feed">${ordered.map(q => questionCardHtml(q)).join('') || emptyStateHtml('feeling', feeling)}</div>
-  `;
-}
-
-/* ============================================================
-   QUESTIONS PAGE
-   ============================================================ */
-function orderBySeenStatus(questions) {
-  const unseen = questions.filter(q => !AppState.seenQuestionIds.has(q.id));
-  const seen = questions.filter(q => AppState.seenQuestionIds.has(q.id));
-  unseen.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  seen.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  return [...unseen, ...seen];
-}
-
-async function renderQuestionsPage() {
-  const chips = ['all', ...FEELINGS.map(f => f.id)];
-  const chipHtml = chips.map(c => {
-    const label = c === 'all' ? 'الكل' : `${FEELING_MAP[c].emoji} ${FEELING_MAP[c].name}`;
-    return `<button class="filter-chip ${AppState.feelingFilter === c ? 'active' : ''}" data-action="filter" data-filter="${c}">${label}</button>`;
-  }).join('');
-
-  let questions = await DB.fetchQuestions({
-    feelingId: AppState.feelingFilter,
-    authorId: AppState.questionsScope === 'mine' ? AppState.profile.id : null,
-  });
-
-  if (AppState.searchQuery.trim()) {
-    const s = AppState.searchQuery.trim().toLowerCase();
-    questions = questions.filter(q =>
-      q.text.toLowerCase().includes(s) ||
-      (q.author && q.author.display_name.toLowerCase().includes(s)) ||
-      FEELING_MAP[q.feeling_id].name.toLowerCase().includes(s)
-    );
+    `;
   }
-
-  const ordered = AppState.questionsScope === 'all' ? orderBySeenStatus(questions) : questions.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  const defaultFeeling = AppState.feelingFilter !== 'all' ? AppState.feelingFilter : 'general';
-
   return `
-    <section class="section-head">
-      <div><h1 class="section-title" style="font-size:1.9rem;">الأسئلة</h1><p class="section-sub">دوّر على مستخدمين، أسئلة، أو مشاعر.</p></div>
-    </section>
-    ${composerHtml(defaultFeeling)}
-    <div class="scope-toggle">
-      <button class="scope-btn ${AppState.questionsScope === 'all' ? 'active' : ''}" data-action="scope" data-scope="all">كل الأسئلة</button>
-      <button class="scope-btn ${AppState.questionsScope === 'mine' ? 'active' : ''}" data-action="scope" data-scope="mine">أسئلتي</button>
-    </div>
-    <div class="search-bar">
-      <span class="search-icon">⌕</span>
-      <input type="text" id="search-input" placeholder="دوّر عن مستخدمين، أسئلة، مشاعر..." value="${escapeHtml(AppState.searchQuery)}">
-    </div>
-    <div class="filter-row">${chipHtml}</div>
-    <div class="question-feed">${ordered.map(q => questionCardHtml(q)).join('') || emptyStateHtml('search')}</div>
-  `;
-}
-
-/* ---------- صندوق كتابة السؤال (بدل نافذة منبثقة) ---------- */
-function composerHtml(defaultFeelingId) {
-  return `
-    <form id="compose-form" class="composer">
-      <textarea id="compose-textarea" class="composer-textarea" maxlength="280" placeholder="شو الي بدك تفهمه عن نفسك اليوم؟"></textarea>
-      <div class="composer-footer">
-        <select id="compose-feeling" class="composer-select">${FEELINGS.map(f => `<option value="${f.id}" ${f.id === defaultFeelingId ? 'selected' : ''}>${f.emoji} ${f.name}</option>`).join('')}</select>
-        <span class="composer-spacer"></span>
-        <button type="submit" class="btn btn-primary" id="compose-submit-btn">نشر السؤال</button>
-      </div>
-      <p class="field-error hidden" id="compose-error"></p>
-    </form>
-  `;
-}
-
-async function submitComposedQuestion(e) {
-  e.preventDefault();
-  const textarea = document.getElementById('compose-textarea');
-  const select = document.getElementById('compose-feeling');
-  const err = document.getElementById('compose-error');
-  const text = textarea.value.trim();
-  err.classList.add('hidden');
-  if (!text) { err.textContent = 'السؤال ما بينفع يكون فاضي.'; err.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('compose-submit-btn');
-  setBtnLoading(btn, true, 'جاري النشر...');
-  const { error } = await DB.postQuestion({ feelingId: select.value, text, authorId: AppState.profile.id });
-  setBtnLoading(btn, false);
-  if (error) { err.textContent = 'صار في خطأ، جرب تاني.'; err.classList.remove('hidden'); return; }
-
-  textarea.value = '';
-  showToast('📝', 'سؤالك صار منشور.');
-  renderMain();
-}
-
-function questionCardHtml(q) {
-  const feeling = FEELING_MAP[q.feeling_id];
-  const author = q.author;
-  const liked = AppState.likedQuestionIds.has(q.id);
-  const isSeen = AppState.seenQuestionIds.has(q.id);
-  const canDelete = AppState.profile && (AppState.profile.is_admin || q.author_id === AppState.profile.id);
-  return `
-    <article class="question-card ${isSeen ? 'seen' : ''}" data-action="open-question" data-qid="${q.id}">
-      <div class="q-head">
-        <div class="avatar avatar-sm" style="background:${author ? author.avatar_color : '#ccc'}22;">${author ? author.avatar_emoji : '🙂'}</div>
-        <div>
-          <div class="q-author-name">${author ? escapeHtml(author.display_name) : 'مستخدم محذوف'}</div>
-          <div class="q-meta"><span>${timeAgo(q.created_at)}</span></div>
+    <div class="card">
+      <div class="card-head">
+        <span ${up(it.anon?null:it.asked_by)}>${it.anon ? `<div class="avatar anon">؟</div>` : avatarHtml(it.asker_avatar, it.asker_initials, '')}</span>
+        <div class="name-line">
+          <b ${up(it.anon?null:it.asked_by)}>${it.anon ? 'سؤال مجهول' : esc(it.asker_name)} ${it.is_shoutout ? '<span class="vip-badge">📢 شوت أوت</span>':''}</b>
+          <small>${timeAgo(it.created_at)}${it.topic && it.topic!=='الكل' ? ' · #'+esc(it.topic) : ''}</small>
         </div>
-        ${!isSeen ? '<span class="new-dot" title="لسا ما شفتها"></span>' : ''}
-        <span class="q-spacer"></span>
-        ${canDelete ? `<button class="delete-btn" data-action="delete-question" data-qid="${q.id}" title="حذف">🗑</button>` : ''}
       </div>
-      <p class="q-text">${escapeHtml(q.text)}</p>
-      <div class="q-footer">
-        <span class="q-tag" style="${feelingVars(feeling)}">${feeling.emoji} ${feeling.name}</span>
-        <span class="q-spacer"></span>
-        <button class="icon-btn ${liked ? 'liked' : ''}" data-action="like-question" data-qid="${q.id}">♥ ${q.likes_count}</button>
-      </div>
-    </article>
-  `;
-}
-
-function emptyStateHtml(context, feeling) {
-  const copy = {
-    home: { title: 'ما في أسئلة هون لسا.', sub: 'كون أول واحد يبلّش المحادثة.' },
-    feeling: { title: `ما في أسئلة عن ${feeling ? feeling.name : 'هاد الشعور'} لسا.`, sub: 'كون أول واحد يبلّش المحادثة.' },
-    search: { title: 'ما في نتائج.', sub: 'جرّب كلمة تانية، أو اسأل السؤال بنفسك.' },
-  }[context] || { title: 'ما في أسئلة هون لسا.', sub: 'كون أول واحد يبلّش المحادثة.' };
-  const btn = context === 'home'
-    ? `<button class="btn btn-primary" data-nav="questions">اسأل سؤال</button>`
-    : `<button class="btn btn-primary" data-action="focus-composer">اسأل سؤال</button>`;
-  return `<div class="empty-state"><div class="empty-state-emoji">🌱</div><div class="empty-state-title">${copy.title}</div><div class="empty-state-sub">${copy.sub}</div>${btn}</div>`;
-}
-
-/* ============================================================
-   QUESTION DETAIL — صفحة كاملة (مش نافذة منبثقة)
-   ============================================================ */
-async function renderQuestionDetailPage(qid) {
-  const q = await DB.fetchQuestionById(qid);
-  if (!q) {
-    return `<button class="back-btn" data-action="go-back">→ رجوع</button><div class="empty-state"><div class="empty-state-emoji">🤷</div><div class="empty-state-title">هاد السؤال ما عاد موجود.</div></div>`;
-  }
-  await DB.markQuestionSeen(qid, AppState.profile.id);
-  AppState.seenQuestionIds.add(qid);
-
-  if (!AppState.channels.answers) {
-    AppState.channels.answers = DB.subscribeToAnswers(qid, debounce(() => {
-      if (AppState.route === 'question-detail' && AppState.activeQuestionId === qid) renderMain();
-    }, 400));
-  }
-
-  const feeling = FEELING_MAP[q.feeling_id];
-  const answers = await DB.fetchAnswersForQuestion(q.id);
-  const liked = AppState.likedQuestionIds.has(q.id);
-  const canDeleteQ = AppState.profile && (AppState.profile.is_admin || q.author_id === AppState.profile.id);
-
-  return `
-    <button class="back-btn" data-action="go-back">→ رجوع</button>
-    <div class="qd-question" style="${feelingVars(feeling)}">
-      <div class="q-head">
-        <div class="avatar avatar-sm" style="background:${q.author ? q.author.avatar_color : '#ccc'}22;">${q.author ? q.author.avatar_emoji : '🙂'}</div>
-        <div><div class="q-author-name">${q.author ? escapeHtml(q.author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(q.created_at)}</div></div>
-        <span class="q-spacer"></span>
-        ${canDeleteQ ? `<button class="delete-btn" data-action="delete-question" data-qid="${q.id}" title="حذف">🗑</button>` : ''}
-      </div>
-      <p class="q-text qd-text">${escapeHtml(q.text)}</p>
-      <div class="q-footer">
-        <span class="q-tag" style="${feelingVars(feeling)}">${feeling.emoji} ${feeling.name}</span>
-        <span class="q-spacer"></span>
-        <button class="icon-btn ${liked ? 'liked' : ''}" data-action="like-question" data-qid="${q.id}">♥ ${q.likes_count}</button>
-      </div>
-    </div>
-    <div class="qd-answers-title">${answers.length} إجابة</div>
-    ${answers.map(a => answerCardHtml(a, q)).join('') || `<p style="color:var(--text-muted); font-size:0.9rem;">ما في إجابات لسا — إجابتك ممكن تكون الأولى.</p>`}
-    <div class="answer-form">
-      <textarea id="answer-textarea" class="answer-textarea" maxlength="500" placeholder="شارك اللي فاهمو عن هالموضوع..."></textarea>
-      <p class="field-error hidden" id="answer-error"></p>
-      <button class="btn btn-primary btn-block" data-action="submit-answer" data-qid="${q.id}" id="answer-submit-btn">نشر الإجابة</button>
-    </div>
-  `;
-}
-
-function answerCardHtml(a, q) {
-  const author = a.author;
-  const liked = AppState.likedAnswerIds.has(a.id);
-  const isOwnQuestion = AppState.profile && q.author_id === AppState.profile.id;
-  const isOwnAnswer = AppState.profile && a.author_id === AppState.profile.id;
-  const tip = a.tips && a.tips[0];
-  const canDeleteA = AppState.profile && (AppState.profile.is_admin || isOwnAnswer);
-  return `
-    <div class="answer-card">
-      <div class="q-head">
-        <div class="avatar avatar-sm" style="background:${author ? author.avatar_color : '#ccc'}22;">${author ? author.avatar_emoji : '🙂'}</div>
-        <div><div class="q-author-name">${author ? escapeHtml(author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(a.created_at)}</div></div>
-        <span class="q-spacer"></span>
-        ${canDeleteA ? `<button class="delete-btn" data-action="delete-answer" data-aid="${a.id}" title="حذف">🗑</button>` : ''}
-      </div>
-      <p class="answer-text">${escapeHtml(a.text)}</p>
-      <div class="q-footer">
-        <button class="icon-btn ${liked ? 'liked' : ''}" data-action="like-answer" data-aid="${a.id}">♥ ${a.likes_count}</button>
-        ${tip ? `<span class="answer-tip-badge">${TIP_VALUES[tip.tip_type].icon} ${TIP_VALUES[tip.tip_type].label}</span>` : ''}
-        <span class="q-spacer"></span>
-        ${isOwnQuestion && !isOwnAnswer && !tip ? `<button class="btn btn-ghost btn-sm" data-action="open-tip" data-qid="${q.id}" data-aid="${a.id}">Tip</button>` : ''}
+      <div class="q-bubble">${esc(it.q)}</div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-primary" style="margin-top:2px;" onclick="openAnswer('${it.id}')">أجب على هذا السؤال</button>
+        ${isOwner ? `<button class="btn-ghost" style="margin-top:2px; width:auto; padding:0 16px;" onclick="deletePost('${it.id}')">حذف</button>` : ''}
       </div>
     </div>
   `;
 }
 
-async function submitAnswer(qid) {
-  const ta = document.getElementById('answer-textarea');
-  const err = document.getElementById('answer-error');
-  const text = ta.value.trim();
-  err.classList.add('hidden');
-  if (!text) { err.textContent = 'اكتب شي قبل ما تنشر إجابتك.'; err.classList.remove('hidden'); return; }
-
-  const btn = document.getElementById('answer-submit-btn');
-  setBtnLoading(btn, true, 'جاري النشر...');
-  const q = await DB.fetchQuestionById(qid);
-  const { error } = await DB.postAnswer({ questionId: qid, text, authorId: AppState.profile.id });
-  setBtnLoading(btn, false);
-  if (error) { err.textContent = 'صار في خطأ، جرب تاني.'; err.classList.remove('hidden'); return; }
-
-  if (q && q.author_id !== AppState.profile.id) {
-    await DB.notify(q.author_id, '💡', `${AppState.profile.display_name} أجاب على سؤالك في ${FEELING_MAP[q.feeling_id].name}.`, 'question-detail', { activeQuestionId: q.id, returnRoute: 'questions' });
-  }
-  ta.value = '';
-  await renderMain();
-  showToast('✅', 'تم نشر إجابتك.');
+// ---- صفحة الاقتباسات ----
+function matchesExplore(item){
+  if(item.type !== 'quote') return false;
+  const topicOk = exploreTopic === 'الكل' || item.topic === exploreTopic;
+  const term = exploreSearchTerm.trim();
+  const searchOk = !term || item.text.includes(term) || (item.author_name||'').includes(term);
+  return topicOk && searchOk;
 }
-
-/* ============================================================
-   TIP SYSTEM
-   ============================================================ */
-function openTipModal(qid, aid) {
-  AppState.tipContext = { questionId: qid, answerId: aid };
-  document.getElementById('tip-overlay').classList.remove('hidden');
-}
-function closeTipModal() { document.getElementById('tip-overlay').classList.add('hidden'); AppState.tipContext = null; }
-
-async function sendTip(tipType) {
-  const ctx = AppState.tipContext;
-  if (!ctx) return;
-  closeTipModal();
-  const { data, error } = await DB.sendTip(ctx.answerId, tipType);
-  if (error) { showToast('🚫', error.message || 'ما قدرنا نرسل الـ Tip.'); return; }
-
-  const tipInfo = TIP_VALUES[tipType];
-  showFloatingXp(tipInfo.xp);
-  showToast(tipInfo.icon, `تم إرسال Tip — +${tipInfo.xp} XP.`);
-  await renderMain();
-}
-
-function showFloatingXp(amount) {
-  const el = document.createElement('div');
-  el.textContent = `✨ +${amount} XP`;
-  el.style.cssText = `position:fixed; top:50%; right:50%; transform:translate(50%,-50%); font-family:var(--font-display); font-weight:700; font-size:1.6rem; color:var(--brand-1); z-index:500; pointer-events:none; animation:floatxp 1.1s ease forwards;`;
-  if (!document.getElementById('floatxp-style')) {
-    const style = document.createElement('style');
-    style.id = 'floatxp-style';
-    style.textContent = `@keyframes floatxp { 0% {opacity:0; transform:translate(50%,-40%) scale(.7);} 20% {opacity:1; transform:translate(50%,-60%) scale(1.15);} 100% {opacity:0; transform:translate(50%,-110%) scale(1);} }`;
-    document.head.appendChild(style);
-  }
-  document.body.appendChild(el);
-  setTimeout(() => el.remove(), 1150);
-}
-
-function showLevelUp(feelingId, level) {
-  const feeling = FEELING_MAP[feelingId];
-  document.getElementById('levelup-emoji').textContent = feeling.emoji;
-  document.getElementById('levelup-message').textContent = `لقد تطورت في ${feeling.name}.`;
-  document.getElementById('levelup-level').textContent = `المستوى ${level}`;
-  document.getElementById('levelup-overlay').classList.remove('hidden');
-}
-function closeLevelUp() { document.getElementById('levelup-overlay').classList.add('hidden'); }
-
-/* ============================================================
-   LIKES
-   ============================================================ */
-async function toggleLikeQuestion(qid) {
-  const res = await DB.toggleQuestionLike(qid);
-  if (!res) return;
-  if (res.liked) AppState.likedQuestionIds.add(qid); else AppState.likedQuestionIds.delete(qid);
-}
-async function toggleLikeAnswer(aid) {
-  const res = await DB.toggleAnswerLike(aid);
-  if (!res) return;
-  if (res.liked) AppState.likedAnswerIds.add(aid); else AppState.likedAnswerIds.delete(aid);
-}
-function refreshFeedViews() {
-  if (['home', 'feelings', 'feeling-detail', 'questions', 'posts'].includes(AppState.route)) renderMain();
-}
-
-/* ============================================================
-   POSTS (صفحة الاقتباسات)
-   ============================================================ */
-async function renderPostsPage() {
-  const posts = await DB.fetchPosts();
+function renderTile(item){
+  const liked = myLikedPostIds.has(item.id);
+  const isOwner = item.author_id === currentUser.id;
   return `
-    <section class="section-head">
-      <div><h1 class="section-title" style="font-size:1.9rem;">الاقتباسات</h1><p class="section-sub">شارك اقتباس أو فكرة، وخلي الناس تتفاعل معك.</p></div>
-    </section>
-    <form id="post-form" class="post-composer">
-      <textarea id="post-textarea" class="ask-textarea" maxlength="500" placeholder="شو الاقتباس أو الفكرة الي بدك تشاركها؟"></textarea>
-      <button type="submit" class="btn btn-primary" id="post-submit-btn">نشر</button>
-    </form>
-    <div class="posts-feed">${posts.map(p => postCardHtml(p)).join('') || `<div class="empty-state"><div class="empty-state-emoji">💬</div><div class="empty-state-title">ما في اقتباسات لسا.</div><div class="empty-state-sub">كون أول واحد يشارك.</div></div>`}</div>
+    <div class="post-tile">
+      <div class="type-ic">❝</div>
+      <span ${up(item.anon?null:item.author_id)}>${item.author_avatar && !item.anon ? `<div class="tile-avatar"><img class="avatar-img" src="${esc(item.author_avatar)}"></div>` : `<div class="tile-avatar">${esc(item.author_initials) || (item.anon?'؟':'?')}</div>`}</span>
+      <div class="tile-name" ${up(item.anon?null:item.author_id)}>${item.anon ? 'مجهول' : esc(item.author_name)}</div>
+      <div class="tile-content quote">${esc(item.text)}</div>
+      <div class="tile-foot">
+        <div class="t-like ${liked?'liked':''}"><span onclick="popHeart(this); toggleLike('${item.id}')">♥</span> <span onclick="openLikers('post','${item.id}')" style="cursor:pointer;">${item.likes}</span></div>
+        <div onclick="openComments('post','${item.id}')" style="cursor:pointer;">💬 ${item.comments||0}</div>
+        <div onclick="openSharePicker('${b64(item.text)}')" style="cursor:pointer;">📤</div>
+        <div onclick="nativeShare('${b64(item.text)}')" style="cursor:pointer;">🔗</div>
+        ${isOwner
+          ? `<div onclick="editQuote('${item.id}')" style="cursor:pointer;">✏️</div><div onclick="deletePost('${item.id}')" style="cursor:pointer;">🗑️</div>`
+          : `<div onclick="reportContent('post','${item.id}')" style="cursor:pointer;">🚩</div>`}
+      </div>
+    </div>
   `;
 }
-
-function postCardHtml(p) {
-  const author = p.author;
-  const liked = AppState.likedPostIds.has(p.id);
-  const canDeleteP = AppState.profile && (AppState.profile.is_admin || p.author_id === AppState.profile.id);
+function renderExploreResults(){
+  const results = publicPosts.filter(matchesExplore);
+  if(results.length === 0){
+    return `<div class="empty-state" style="padding:34px 10px;"><div class="big">🔍</div>ما فيه نتائج مطابقة<br>جرب كلمة أو موضوع ثاني</div>`;
+  }
+  return `<div class="tile-grid">${results.map(it=>renderTile(it)).join('')}</div>`;
+}
+function onExploreSearch(val){
+  exploreSearchTerm = val;
+  document.querySelectorAll('.exploreResults').forEach(el => el.innerHTML = renderExploreResults());
+}
+function setExploreTopic(name){
+  exploreTopic = name;
+  render();
+}
+function renderQuotesPage(){
+  const topicsList = computeTopics();
   return `
-    <article class="post-card" data-pid="${p.id}">
-      <div class="q-head">
-        <div class="avatar avatar-sm" style="background:${author ? author.avatar_color : '#ccc'}22;">${author ? author.avatar_emoji : '🙂'}</div>
-        <div><div class="q-author-name">${author ? escapeHtml(author.display_name) : 'مستخدم محذوف'}</div><div class="q-meta">${timeAgo(p.created_at)}</div></div>
-        <span class="q-spacer"></span>
-        ${canDeleteP ? `<button class="delete-btn" data-action="delete-post" data-pid="${p.id}" title="حذف">🗑</button>` : ''}
-      </div>
-      <p class="q-text">${escapeHtml(p.text)}</p>
-      <div class="q-footer">
-        <button class="icon-btn ${liked ? 'liked' : ''}" data-action="like-post" data-pid="${p.id}">♥ ${p.likes_count}</button>
-        <button class="icon-btn" data-action="toggle-comments" data-pid="${p.id}">💬 تعليقات</button>
-      </div>
-      <div class="post-comments hidden" id="comments-${p.id}"></div>
-    </article>
-  `;
-}
+    <div class="page-title">الاقتباسات</div>
+    <div class="muted" style="font-size:12px; margin:-2px 0 12px 0;">دوّر على اقتباس بموضوع يعجبك، أو شارك اقتباسك الخاص</div>
 
-async function togglePostComments(pid) {
-  const container = document.getElementById(`comments-${pid}`);
-  if (!container) return;
-  const willShow = container.classList.contains('hidden');
-  container.classList.toggle('hidden');
-  if (AppState.channels.comments) { DB.unsubscribe(AppState.channels.comments); AppState.channels.comments = null; }
-  if (!willShow) return;
-  await renderComments(pid);
-  AppState.channels.comments = DB.subscribeToComments(pid, debounce(() => renderComments(pid), 400));
-}
-
-async function renderComments(pid) {
-  const container = document.getElementById(`comments-${pid}`);
-  if (!container || container.classList.contains('hidden')) return;
-  const comments = await DB.fetchComments(pid);
-  const canModerate = AppState.profile && AppState.profile.is_admin;
-  container.innerHTML = `
-    <div class="comment-list">
-      ${comments.map(c => {
-        const canDelete = canModerate || (AppState.profile && c.author_id === AppState.profile.id);
-        return `
-        <div class="comment-item">
-          <div class="avatar avatar-sm" style="background:${c.author ? c.author.avatar_color : '#ccc'}22;">${c.author ? c.author.avatar_emoji : '🙂'}</div>
-          <div style="flex:1;"><div class="comment-author">${c.author ? escapeHtml(c.author.display_name) : 'مستخدم محذوف'}</div><div class="comment-text">${escapeHtml(c.text)}</div></div>
-          ${canDelete ? `<button class="delete-btn" data-action="delete-comment" data-cid="${c.id}" data-pid="${pid}" title="حذف">🗑</button>` : ''}
+    ${featuredPost ? `
+    <div class="eyebrow">⭐ الاقتباس المميز (أعلى لايكات آخر 24 ساعة)</div>
+    <div class="quote-card featured-quote" style="border-right-color:var(--orange);">
+      <div class="qtext">${esc(featuredPost.text)}</div>
+      <div class="qmeta">
+        <div class="qauthor" ${up(featuredPost.anon?null:featuredPost.author_id)}>
+          ${avatarHtml(featuredPost.author_avatar, featuredPost.author_initials, '')}
+          <span>${featuredPost.anon ? 'مجهول' : esc(featuredPost.author_name)}</span>
         </div>
-      `;}).join('') || '<p style="color:var(--text-faint); font-size:0.85rem;">ولا تعليق لسا.</p>'}
-    </div>
-    <form class="comment-form" data-pid="${pid}">
-      <input type="text" class="comment-input" placeholder="اكتب تعليق..." maxlength="300">
-      <button type="submit" class="btn btn-ghost btn-sm">إرسال</button>
-    </form>
-  `;
-}
-
-async function submitComment(form) {
-  const pid = form.dataset.pid;
-  const input = form.querySelector('.comment-input');
-  const text = input.value.trim();
-  if (!text) return;
-  await DB.addComment({ postId: pid, text, authorId: AppState.profile.id });
-  input.value = '';
-  await togglePostComments(pid); // إعادة تحميل مقفولة
-  await togglePostComments(pid); // فتحها من جديد بالمحتوى الجديد
-}
-
-async function submitPost(e) {
-  e.preventDefault();
-  const ta = document.getElementById('post-textarea');
-  const text = ta.value.trim();
-  if (!text) return;
-  const btn = document.getElementById('post-submit-btn');
-  setBtnLoading(btn, true, 'جاري النشر...');
-  await DB.createPost({ text, authorId: AppState.profile.id });
-  setBtnLoading(btn, false);
-  ta.value = '';
-  showToast('✅', 'تم نشر الاقتباس.');
-  renderMain();
-}
-
-async function togglePostLike(pid) {
-  const res = await DB.togglePostLike(pid);
-  if (!res) return;
-  if (res.liked) AppState.likedPostIds.add(pid); else AppState.likedPostIds.delete(pid);
-  refreshFeedViews();
-}
-
-/* ============================================================
-   NOTIFICATIONS
-   ============================================================ */
-async function refreshNotifBadge() {
-  if (!AppState.profile) return;
-  const notifs = await DB.fetchNotifications(AppState.profile.id);
-  const unread = notifs.filter(n => !n.is_read).length;
-  [document.getElementById('notif-badge'), document.getElementById('notif-badge-mobile')].forEach(b => {
-    if (!b) return;
-    b.textContent = unread;
-    b.classList.toggle('hidden', unread === 0);
-  });
-}
-
-async function renderNotifications() {
-  const notifs = await DB.fetchNotifications(AppState.profile.id);
-  await DB.markAllNotificationsRead(AppState.profile.id);
-  setTimeout(refreshNotifBadge, 0);
-  if (!notifs.length) {
-    return `<h1 class="section-title" style="font-size:1.9rem; margin-bottom:1.4rem;">الإشعارات</h1>
-      <div class="empty-state"><div class="empty-state-emoji">🔔</div><div class="empty-state-title">ما في شي هون لسا.</div><div class="empty-state-sub">لما حدا يعطيك Tip أو ترقّى مستوى، رح تشوفه هون.</div></div>`;
-  }
-  return `
-    <h1 class="section-title" style="font-size:1.9rem; margin-bottom:1.4rem;">الإشعارات</h1>
-    <div class="notif-list">${notifs.map(n => `
-      <div class="notif-item ${n.is_read ? '' : 'unread'} ${n.link_route ? 'clickable' : ''}" ${n.link_route ? `data-action="open-notification" data-route="${escapeHtml(n.link_route)}" data-params='${escapeHtml(JSON.stringify(n.link_params || {}))}'` : ''}>
-        <span class="notif-icon">${n.icon}</span>
-        <div><div class="notif-text">${escapeHtml(n.text)}</div><div class="notif-time">${timeAgo(n.created_at)}</div></div>
+        <div class="qstory">♥ ${featuredPost.likes}</div>
       </div>
-    `).join('')}</div>
+    </div>` : ''}
+
+    <div class="composer-trigger" onclick="openComposerMode('quote')">
+      <span>شاركنا اقتباس يعجبك...</span>
+      <div class="composer-plus">+</div>
+    </div>
+    <input type="text" class="explore-search" style="margin-top:14px;" placeholder="ابحث عن اقتباس أو شخص..." value="${esc(exploreSearchTerm)}" oninput="onExploreSearch(this.value)">
+    <div class="topic-row">
+      ${topicsList.map(t=>`<div class="topic-chip ${exploreTopic===t.name?'active':''}" onclick="setExploreTopic('${escAttr(t.name)}')">${t.emoji} ${esc(t.name)}</div>`).join('')}
+    </div>
+    <div class="exploreResults">${renderExploreResults()}</div>
+    <div class="eyebrow">أشخاص بالمنصة 👥</div>
+    <div class="people-grid">
+      ${peopleDirectory.length === 0 ? `<div class="muted" style="font-size:12px;grid-column:1/-1;">ما فيه أعضاء جدد لهسا — كن أول من يدعو أصحابه!</div>` :
+        peopleDirectory.map(p=>`
+        <div class="people-card">
+          <span ${up(p.id)}>${p.avatar_url ? `<div class="avatar" style="width:38px;height:38px;font-size:14px;border-radius:12px;margin:0 auto 8px auto;"><img class="avatar-img" src="${esc(p.avatar_url)}"></div>` : `<div class="avatar" style="width:38px;height:38px;font-size:14px;border-radius:12px;margin:0 auto 8px auto;">${esc(p.initials)}</div>`}</span>
+          <b ${up(p.id)}>${esc(p.name)}</b>
+          <span>${p.vip?'عضو VIP ✨':'عضو بالمنصة'}</span>
+          <button class="d-follow-btn ${followingIds.has(p.id)?'following':''}" style="margin:8px auto 0 auto; display:block;" onclick="toggleFollow('${p.id}')">${followingIds.has(p.id)?'متابَع ✓':'متابعة'}</button>
+        </div>
+      `).join('')}
+    </div>
   `;
 }
 
-/* ============================================================
-   PROFILE
-   ============================================================ */
-async function renderProfile() {
-  const profile = AppState.profile;
-  const level = getLevelInfo(totalXpFromMap(AppState.xpMap));
-  const sortedFeelings = [...FEELINGS].filter(f => !f.gradient).sort((a, b) => (AppState.xpMap[b.id] || 0) - (AppState.xpMap[a.id] || 0));
-  const strongest = sortedFeelings.slice(0, 3);
-  const growth = sortedFeelings.slice(-3).reverse();
-
-  const mapRows = FEELINGS.filter(f => !f.gradient).map(f => {
-    const info = getLevelInfo(AppState.xpMap[f.id] || 0);
-    return `<div class="emotional-map-row"><div class="em-label">${f.emoji} ${f.name}</div><div class="em-track"><div class="em-fill" style="width:${info.pct}%; background:${f.color};"></div></div><div class="em-xp">Lv ${info.level} · ${info.xp.toLocaleString()} XP</div></div>`;
-  }).join('');
-
+// ---- صفحة الاعترافات ----
+function renderConfessionCard(c){
+  const liked = myLikedConfessionIds.has(c.id);
+  const isAnon = c.anon !== false;
+  const isOwner = c.user_id === currentUser.id;
   return `
+    <div class="confession-card">
+      <div class="conf-head">
+        <span ${up(isAnon?null:c.user_id)}>${isAnon ? `<div class="conf-ghost">🎭</div>` : avatarHtml(c.user_avatar, c.user_initials, 'conf-ghost')}</span>
+        <b ${up(isAnon?null:c.user_id)}>${isAnon ? 'اعتراف مجهول' : esc(c.user_name)}</b>
+        <span class="muted">${timeAgo(c.created_at)}</span>
+      </div>
+      <div class="conf-text">${esc(c.text)}</div>
+      <div class="card-foot" style="margin-top:10px;">
+        <div class="foot-btn ${liked?'liked':''}"><span onclick="popHeart(this); toggleConfessionLike('${c.id}')">♥</span> <span onclick="openLikers('confession','${c.id}')" style="cursor:pointer;">${c.likes}</span></div>
+        <div class="foot-btn" onclick="openComments('confession','${c.id}')">💬 <span>${c.comments||0}</span></div>
+        <div class="foot-btn" onclick="openSharePicker('${b64(c.text)}')">📤 مشاركة</div>
+        <div class="foot-btn" onclick="nativeShare('${b64(c.text)}')">🔗</div>
+        ${isOwner ? `<div class="foot-btn" onclick="deleteConfession('${c.id}')">🗑️</div>` : `<div class="foot-btn" onclick="reportContent('confession','${c.id}')">🚩</div>`}
+      </div>
+    </div>
+  `;
+}
+function renderConfessions(){
+  return `
+    <div class="page-title">الاعترافات</div>
+    <div class="muted" style="font-size:12px; margin:-2px 0 14px 0;">اعترف باسمك أو مجهول بالكامل — اختيارك أنت</div>
+    <div class="composer-trigger" onclick="openComposerMode('confession')">
+      <span>عندك اعتراف؟ شاركه الحين...</span>
+      <div class="composer-plus">+</div>
+    </div>
+    <div style="margin-top:14px;">
+      ${confessions.length===0 ? `<div class="empty-state"><div class="big">🎭</div>ما فيه اعترافات بعد<br>كن أول من يعترف بشي</div>` :
+        confessions.map(renderConfessionCard).join('')}
+    </div>
+  `;
+}
+
+// ---- صفحة الحساب (زائر) ----
+function renderGuestProfile(){
+  return `
+    <div class="profile-cover"></div>
     <div class="profile-header">
-      <div class="avatar avatar-lg" style="background:${profile.avatar_color}22;">${profile.avatar_emoji}</div>
-      <div><h1 class="section-title" style="font-size:1.7rem;">${escapeHtml(profile.display_name)}</h1><p class="section-sub">المستوى ${level.level} · ${totalXpFromMap(AppState.xpMap).toLocaleString()} XP إجمالي</p></div>
+      <div class="profile-avatar" style="position:relative;">👤</div>
+      <div class="profile-name">تتصفح كزائر</div>
+      <div class="muted" style="font-size:12px; margin-top:4px; max-width:280px; margin-inline:auto;">
+        تقدر تشوف كل الأسئلة والاقتباسات والاعترافات، بس عشان تسأل أو تجاوب أو تلايك أو تتابع أو ترسل — لازم حساب حقيقي.
+      </div>
+      <button class="btn-primary" style="width:auto; padding:10px 26px; margin-top:14px;" onclick="promptGuestLogin()">تسجيل الدخول / إنشاء حساب</button>
     </div>
-    <div class="profile-stats-grid">
-      <div class="profile-stat-card"><div class="profile-stat-num">${level.level}</div><div class="profile-stat-label">المستوى</div></div>
-      <div class="profile-stat-card"><div class="profile-stat-num">${profile.tips_received}</div><div class="profile-stat-label">تقديرات مستلمة</div></div>
-      <div class="profile-stat-card"><div class="profile-stat-num">${profile.tips_given}</div><div class="profile-stat-label">تقديرات مرسلة</div></div>
-    </div>
-    <h2 class="section-title" style="margin-bottom:0.3rem;">خريطتك العاطفية</h2>
-    <p class="section-sub" style="margin-bottom:1.2rem;">صورة عن مكانك الحالي — مش تقييم لك.</p>
-    <div class="map-summary-grid">
-      <div class="map-summary-card"><div class="map-summary-title">الأقوى عندك</div>${strongest.map(f => `<span class="map-summary-chip">${f.emoji} ${f.name}</span>`).join('')}</div>
-      <div class="map-summary-card"><div class="map-summary-title">مجالات للاستكشاف</div>${growth.map(f => `<span class="map-summary-chip">${f.emoji} ${f.name}</span>`).join('')}</div>
-    </div>
-    <div style="background:var(--bg-elevated); border:1px solid var(--border-soft); border-radius:var(--radius-lg); padding:0.6rem 1.4rem;">${mapRows}</div>
+    <div class="hint" style="margin-top:22px;">حسابك حقيقي ومحفوظ بقاعدة بيانات — يبدأ رصيدك 50 🪙، وتسجل دخولك من أي جهاز وتلقى نفس بياناتك.</div>
   `;
 }
 
-/* ============================================================
-   ADMIN
-   ============================================================ */
-async function renderAdmin() {
-  const users = await DB.adminListUsers();
+// ---- صفحة الحساب ----
+function renderProfile(){
+  const myOpenQuestions = publicPosts.filter(p=>p.type==='qa' && !(answersByPost[p.id]&&answersByPost[p.id].length) && p.asked_by===currentUser.id);
+  const myAnswersCount = Object.values(answersByPost).reduce((sum,arr)=> sum + arr.filter(a=>a.user_id===currentUser.id).length, 0);
   return `
-    <section class="section-head"><div><h1 class="section-title" style="font-size:1.9rem;">لوحة الأدمن</h1><p class="section-sub">إدارة الحسابات. ما في وصول لكلمات المرور — هذا مقصود لحماية المستخدمين.</p></div></section>
-    <div class="admin-table-wrap">
-      <table class="admin-table">
-        <thead><tr><th>المستخدم</th><th>الإيميل</th><th>تقديرات</th><th>تاريخ التسجيل</th><th>الحالة</th><th>إجراء</th></tr></thead>
-        <tbody>
-          ${users.map(u => `
-            <tr>
-              <td><strong>${escapeHtml(u.display_name)}</strong><br><span style="color:var(--text-faint); font-size:0.78rem;">@${escapeHtml(u.username)}${u.is_admin ? ' · أدمن' : ''}</span></td>
-              <td>${escapeHtml(u.email || '—')}</td>
-              <td>${u.tips_received} مستلمة / ${u.tips_given} مرسلة</td>
-              <td>${new Date(u.created_at).toLocaleDateString('ar')}</td>
-              <td>${u.is_banned ? `<span class="ban-badge">محظور${u.ban_reason ? ': ' + escapeHtml(u.ban_reason) : ''}</span>` : '<span class="ok-badge">فعّال</span>'}</td>
-              <td>
-                ${u.is_admin ? '' : (u.is_banned
-                  ? `<button class="btn btn-ghost btn-sm" data-action="admin-unban" data-uid="${u.id}">فك الحظر</button>`
-                  : `<button class="btn btn-ghost btn-sm" data-action="admin-ban" data-uid="${u.id}" data-name="${escapeHtml(u.display_name)}">حظر</button>`)}
-              </td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
+    <div class="profile-cover"></div>
+    <div class="profile-header">
+      <div class="profile-avatar" style="position:relative;">
+        ${currentUser.vip ? `<div class="vip-crown">✦ VIP ✦</div>` : ''}
+        ${currentUser.avatar_url ? `<img class="avatar-img" src="${esc(currentUser.avatar_url)}">` : esc(currentUser.initials)}
+        <label class="avatar-upload-btn" title="تغيير الصورة">
+          📷<input type="file" accept="image/*" style="display:none;" onchange="uploadAvatar(this.files[0])">
+        </label>
+      </div>
+      <div class="profile-name">${esc(currentUser.name)} ${currentUser.vip ? '<span class="vip-badge">VIP</span>' : ''}</div>
+      <div class="muted" style="font-size:12px; margin-top:4px; max-width:280px; margin-inline:auto;">${currentUser.bio ? esc(currentUser.bio) : 'ما فيه نبذة بعد'} — <a onclick="editMyBio()" style="color:var(--red); cursor:pointer; font-weight:700;">تعديل</a></div>
+      ${!currentUser.vip ? `<button class="btn-primary" style="width:auto; padding:9px 20px; margin-top:10px;" onclick="upgradeVip()">✨ الترقية إلى VIP</button>` : ''}
     </div>
+
+    <div class="stat-card">
+      <div><b>${publicPosts.filter(p=>p.author_id===currentUser.id).length + myAnswersCount}</b><span>مساهمة</span></div>
+      <div><b>${followingIds.size}</b><span>تتابع</span></div>
+      <div><b>${currentUser.coins}</b><span>🪙 عملات</span></div>
+    </div>
+
+    <div class="eyebrow">كيف تكسب عملات 🪙</div>
+    <div class="card" style="font-size:11.5px; line-height:2; color:var(--ink);">
+      ❤️ لايك على منشورك = 1 🪙 &nbsp;·&nbsp; ✅ تجاوب على سؤال = 5 🪙 &nbsp;·&nbsp; ❓ تسأل سؤال = 8 🪙
+    </div>
+
+    <div class="eyebrow">أسئلتك المفتوحة <span class="more">${myOpenQuestions.length}</span></div>
+    <div class="card" style="padding:4px 14px;">
+      ${myOpenQuestions.length === 0 ? `<div class="empty-state" style="padding:24px;">ما عندك أسئلة مفتوحة حالياً</div>` :
+        myOpenQuestions.map(q => `
+        <div class="inbox-item">
+          <div class="dot"></div>
+          <div style="flex:1;">
+            <div style="font-size:12.5px; line-height:1.4; color:var(--ink);">${esc(q.q)}</div>
+            <div class="muted" style="font-size:10px; margin-top:2px;">بانتظار أي أحد يجاوب — ${timeAgo(q.created_at)}</div>
+          </div>
+          <div class="foot-btn" style="margin-inline-start:auto;" onclick="deletePost('${q.id}')">🗑️</div>
+        </div>
+      `).join('')}
+    </div>
+
+    <div class="eyebrow">الحساب</div>
+    <div class="card">
+      <button class="btn-ghost" style="margin-top:0;" onclick="logout()">🚪 تسجيل الخروج</button>
+      <button class="btn-ghost" style="margin-top:8px; color:var(--red); border-color:var(--red);" onclick="deleteMyAccount()">⚠️ حذف الحساب نهائياً</button>
+    </div>
+
+    ${currentUser.is_admin ? `
+    <div class="eyebrow">⚙️ منطقة المطور</div>
+    <div class="card" style="border-color:var(--red);">
+      <div class="muted" style="font-size:11px; margin-bottom:10px; line-height:1.6;">يمسح كل الحسابات (غير حسابك) وكل الأسئلة والاقتباسات والاعترافات نهائياً. للاستخدام وقت التطوير والاختبار بس.</div>
+      <button class="btn-ghost" style="margin-top:0; color:var(--red); border-color:var(--red);" onclick="wipeAllData()">🧨 حذف كل الحسابات والمحتوى</button>
+    </div>` : ''}
+
+    <div class="hint">حسابك حقيقي ومحفوظ بقاعدة بيانات — أي جهاز تسجل دخول منه بنفس البريد بتلقى نفس بياناتك.</div>
   `;
 }
 
-let banTargetUserId = null;
-function openBanModal(userId, name) {
-  banTargetUserId = userId;
-  document.getElementById('ban-target-name').textContent = `حظر حساب: ${name}`;
-  document.getElementById('ban-reason').value = '';
-  document.getElementById('ban-overlay').classList.remove('hidden');
+// ---- صفحة الرسائل ----
+function renderMessagesPage(){
+  return `
+    <div class="page-title">الرسائل</div>
+    <div class="muted" style="font-size:12px; margin:-2px 0 14px 0;">راسل أي شخص تتابعه أو تابعك مباشرة</div>
+    ${conversations.length===0 ? `<div class="empty-state"><div class="big">💬</div>ما فيه محادثات بعد<br>زور أي حساب وابدأ الحديث</div>` :
+      conversations.map(c=>`
+      <div class="inbox-item" onclick="openThread('${c.userId}','${b64(c.name||'')}','${escAttr(c.initials||'?')}', ${c.avatar? `'${escAttr(c.avatar)}'` : 'null'})">
+        ${avatarHtml(c.avatar, c.initials, '')}
+        <div style="flex:1;">
+          <b style="font-family:'El Messiri',sans-serif; font-size:12.5px; color:var(--ink);">${esc(c.name)||'مستخدم'}</b>
+          <div class="muted" style="font-size:11px; margin-top:2px;">${esc((c.lastText||'').slice(0,40))}</div>
+        </div>
+        ${c.unread>0 ? `<div class="dot" style="width:10px;height:10px;"></div>` : ''}
+      </div>
+    `).join('')}
+  `;
 }
-function closeBanModal() { document.getElementById('ban-overlay').classList.add('hidden'); banTargetUserId = null; }
+function renderThread(){
+  const box = document.getElementById('threadMessages');
+  const title = document.getElementById('threadTitle');
+  if(title) title.textContent = activeThreadUser ? activeThreadUser.name : 'محادثة';
+  if(!box) return;
+  box.innerHTML = threadMessages.map(m=>{
+    const mine = m.from_id === currentUser.id;
+    return `<div style="display:flex; justify-content:${mine?'flex-start':'flex-end'}; margin-bottom:8px;">
+      <div style="max-width:75%; background:${mine?'var(--red)':'var(--paper-soft)'}; color:${mine?'#fff':'var(--ink)'}; padding:9px 13px; border-radius:14px; font-size:12.5px; line-height:1.5;">
+        ${esc(m.text)}
+      </div>
+    </div>`;
+  }).join('');
+  box.scrollTop = box.scrollHeight;
+}
 
-async function confirmBan(e) {
+// ---- شيت زيارة حساب شخص ----
+function renderProfileSheet(p, info){
+  const isMe = info.isMe;
+  const qCount = info.questions.length;
+
+  const questionsHTML = info.questions.length === 0
+    ? `<div class="empty-state" style="padding:16px;">${isMe ? 'ما سألت أي سؤال بعد' : 'ما نشر أسئلة علنية بعد'}</div>`
+    : info.questions.map(q => `
+      <div class="inbox-item" style="cursor:default;">
+        <div class="dot" style="background:${q.anon?'var(--ink-muted)':'var(--red)'};"></div>
+        <div style="flex:1;">
+          <div style="font-size:12px; line-height:1.4; color:var(--ink);">${esc(q.q)}${q.anon ? ' <span class="muted" style="font-size:9.5px;">(مجهول — يظهر لك بس)</span>' : ''}</div>
+          <div class="muted" style="font-size:9.5px; margin-top:2px;">${q.answersCount ? `متجاوب عليه (${q.answersCount})` : 'بانتظار إجابة'} — ${timeAgo(q.created_at)}</div>
+        </div>
+      </div>
+    `).join('');
+
+  const quotesHTML = info.quotes.length === 0
+    ? `<div class="empty-state" style="padding:16px;">ما نشر اقتباسات بعد</div>`
+    : info.quotes.map(qt => `
+      <div class="inbox-item" style="cursor:default;">
+        <div style="flex:1; font-size:12px; color:var(--ink); line-height:1.5;">❝ ${esc(qt.text)}</div>
+      </div>
+    `).join('');
+
+  const confessionsHTML = info.confessions.length === 0
+    ? `<div class="empty-state" style="padding:16px;">${isMe ? 'ما سجّلت اعترافات بعد' : 'ما نشر اعترافات علنية بعد'}</div>`
+    : info.confessions.map(c => `
+      <div class="inbox-item" style="cursor:default;">
+        <div style="flex:1; font-size:12px; color:var(--ink); line-height:1.5;">🎭 ${esc(c.text)}${c.anon ? ' <span class="muted" style="font-size:9.5px;">(مجهول — يظهر لك بس)</span>' : ''}</div>
+      </div>
+    `).join('');
+
+  document.getElementById('profileSheetBody').innerHTML = `
+    <div style="text-align:center;">
+      <div style="position:relative; display:inline-block;">
+        ${p.vip ? `<div class="vip-crown">✦ VIP ✦</div>` : ''}
+        ${avatarHtml(p.avatar_url, p.initials, '')}
+      </div>
+      <div class="profile-name" style="justify-content:center; margin-top:10px;">${esc(p.name)} ${p.vip?'<span class="vip-badge">VIP</span>':''}</div>
+      ${p.bio ? `<div class="muted" style="font-size:12px; margin-top:4px; max-width:280px; margin-inline:auto;">${esc(p.bio)}</div>` : ''}
+      ${!isMe ? `
+      <div style="display:flex; gap:8px; margin-top:14px;">
+        <button class="btn-primary" style="margin-top:0;" onclick="toggleFollow('${p.id}')">${followingIds.has(p.id)?'إلغاء المتابعة':'متابعة'}</button>
+        <button class="btn-primary" style="margin-top:0; background:var(--ink);" onclick="closeSheet(); openThread('${p.id}','${b64(p.name)}','${escAttr(p.initials)}', ${p.avatar_url?`'${escAttr(p.avatar_url)}'`:'null'})">💬 مراسلة</button>
+      </div>
+      <div style="display:flex; gap:8px; margin-top:8px;">
+        <button class="btn-ghost" style="margin-top:0;" onclick="reportContent('user','${p.id}')">🚩 إبلاغ</button>
+        <button class="btn-ghost" style="margin-top:0; color:var(--red); border-color:var(--red);" onclick="blockUser('${p.id}')">🚫 حظر</button>
+      </div>` : `<div class="muted" style="margin-top:8px; font-size:12px;">هذا حسابك أنت</div>`}
+    </div>
+
+    <div class="stat-card" style="margin-top:16px;">
+      <div><b>${info.followerCount}</b><span>متابع</span></div>
+      <div><b>${qCount}</b><span>سؤال</span></div>
+      <div><b>${info.quotes.length}</b><span>اقتباس</span></div>
+    </div>
+
+    <div class="eyebrow">أسئلته ❓</div>
+    <div class="card" style="padding:2px 12px; max-height:180px; overflow-y:auto;">${questionsHTML}</div>
+
+    <div class="eyebrow">اقتباساته ❝</div>
+    <div class="card" style="padding:2px 12px; max-height:180px; overflow-y:auto;">${quotesHTML}</div>
+
+    <div class="eyebrow">اعترافاته 🎭</div>
+    <div class="card" style="padding:2px 12px; max-height:180px; overflow-y:auto;">${confessionsHTML}</div>
+  `;
+}
+
+// ---- شيت اختيار شخص للمشاركة ----
+function renderSharePicker(){
+  const box = document.getElementById('sharePickerList');
+  const pool = peopleDirectory.filter(p=> followingIds.has(p.id))
+    .concat(conversations.map(c=>({id:c.userId,name:c.name,initials:c.initials,avatar_url:c.avatar})));
+  const seen = new Set(); const list = [];
+  pool.forEach(p=>{ if(p && p.id && !seen.has(p.id)){ seen.add(p.id); list.push(p); } });
+  if(list.length === 0){
+    box.innerHTML = `<div class="empty-state" style="padding:20px;">تابع أشخاص أول عشان تقدر تشاركهم</div>`;
+    return;
+  }
+  box.innerHTML = list.map(p=>`
+    <div class="inbox-item" onclick="shareToPerson('${p.id}')">
+      ${avatarHtml(p.avatar_url, p.initials, '')}
+      <b style="font-family:'El Messiri',sans-serif; font-size:12.5px; color:var(--ink);">${esc(p.name)}</b>
+    </div>
+  `).join('');
+}
+
+// ---- شيت مين أعجب ----
+function renderLikersList(rows){
+  const box = document.getElementById('likersList');
+  if(!box) return;
+  if(!rows || rows.length === 0){
+    box.innerHTML = `<div class="empty-state" style="padding:20px;">محد أعجب بهذا بعد — كن أول واحد</div>`;
+    return;
+  }
+  box.innerHTML = rows.map(r=>{
+    const p = r.profiles || {};
+    return `
+    <div class="inbox-item" ${up(r.user_id)}>
+      ${avatarHtml(p.avatar_url, p.initials, '')}
+      <b style="font-family:'El Messiri',sans-serif; font-size:12.5px; color:var(--ink);">${esc(p.name)||'مستخدم'}</b>
+    </div>`;
+  }).join('');
+}
+
+// ================= تصدير صورة القصة (توليد حقيقي بالمتصفح، بدون سيرفر) =================
+function exportStoryImage(text){
+  const canvas = document.createElement('canvas');
+  canvas.width = 1080; canvas.height = 1350;
+  const ctx = canvas.getContext('2d');
+  const grad = ctx.createLinearGradient(0,0,1080,1350);
+  grad.addColorStop(0,'#C97B4A'); grad.addColorStop(1,'#7A3F22');
+  ctx.fillStyle = grad; ctx.fillRect(0,0,1080,1350);
+
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.direction = 'rtl';
+
+  const words = text.split(' ');
+  let lines = []; let line = '';
+  ctx.font = '600 56px sans-serif';
+  words.forEach(w=>{
+    const test = line + w + ' ';
+    if(ctx.measureText(test).width > 860 && line){ lines.push(line); line = w + ' '; }
+    else line = test;
+  });
+  lines.push(line);
+
+  const startY = 675 - (lines.length*70)/2;
+  lines.forEach((l,i)=> ctx.fillText(l.trim(), 540, startY + i*80));
+
+  ctx.font = '700 34px sans-serif';
+  ctx.fillText('QQC', 540, 1260);
+
+  const link = document.createElement('a');
+  link.download = 'quote.png';
+  link.href = canvas.toDataURL('image/png');
+  link.click();
+  toast('📤 تم تجهيز الصورة للتحميل');
+}
+
+// مشاركة خارجية حقيقية (واتساب/تويتر/أي تطبيق) عبر واجهة المتصفح، أو نسخ للحافظة كخيار احتياطي
+async function nativeShare(encodedText){
+  const text = unb64(encodedText);
+  if(navigator.share){
+    try{ await navigator.share({ text: text + '\n— QQC' }); }catch(e){ /* المستخدم ألغى المشاركة، تجاهل */ }
+  } else if(navigator.clipboard){
+    try{ await navigator.clipboard.writeText(text); toast('✅ تم نسخ النص — الصقه أي مكان'); }
+    catch(e){ toast('تعذر النسخ'); }
+  } else {
+    toast('المشاركة غير مدعومة بهذا المتصفح');
+  }
+}
+
+// ================= نافذة الإنشاء (composer) =================
+function openComposer(){
+  if(requireLogin()) return;
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('composerSheet').classList.add('show');
+}
+function openComposerMode(mode){
+  openComposer();
+  setComposerMode(mode);
+}
+function closeSheet(){
+  document.getElementById('overlay').classList.remove('show');
+  document.querySelectorAll('.sheet').forEach(s=>s.classList.remove('show'));
+}
+function setComposerMode(mode){
+  composerMode = mode;
+  document.querySelectorAll('#composerTabs .mode-opt').forEach(d => d.classList.toggle('active', d.dataset.mode === mode));
+  document.getElementById('composerAskBody').style.display = mode==='ask' ? 'block':'none';
+  document.getElementById('composerShoutBody').style.display = mode==='shoutout' ? 'block':'none';
+  document.getElementById('composerQuoteBody').style.display = mode==='quote' ? 'block':'none';
+  document.getElementById('composerConfessionBody').style.display = mode==='confession' ? 'block':'none';
+  if(mode==='ask' || mode==='quote'){
+    const list = document.getElementById('topicDatalist');
+    if(list) list.innerHTML = computeTopics().filter(t=>t.name!=='الكل').map(t=>`<option value="${escAttr(t.name)}">`).join('');
+  }
+}
+
+// ================= الإجابة على سؤال =================
+function openAnswer(postId){
+  if(requireLogin()) return;
+  activeQuestion = publicPosts.find(p=>p.id===postId);
+  if(!activeQuestion) return;
+  document.getElementById('answerQuestionPreview').textContent = activeQuestion.q;
+  document.getElementById('answerText').value = '';
+  document.getElementById('overlay').classList.add('show');
+  document.getElementById('answerSheet').classList.add('show');
+}
+
+// ================= بدء التطبيق =================
+initApp();
+
+// دعم تفعيل عناصر role="button" بلوحة المفاتيح (Enter/Space) لمن يتصفح بدون فأرة
+document.addEventListener('keydown', e => {
+  if((e.key === 'Enter' || e.key === ' ') && e.target && e.target.getAttribute && e.target.getAttribute('role') === 'button'){
+    e.preventDefault();
+    e.target.click();
+  }
+});
+
+// نسجّل الـ Service Worker (بدون أي كاش — شوف sw.js) — لازم يكون مسجّل عشان
+// المتصفح (خصوصاً أندرويد/كروم/سامسونج) يعتبر الموقع "قابل للتثبيت" كتطبيق.
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('./sw.js').catch(()=>{});
+}
+
+// ================= تثبيت التطبيق على الشاشة الرئيسية =================
+let deferredInstallPrompt = null;
+const INSTALL_DISMISS_KEY = 'qqc_install_dismissed';
+
+function isStandaloneApp(){
+  return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+}
+function isIOSDevice(){
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.MSStream;
+}
+
+// كروم/سامسونج إنترنت وأي متصفح Chromium بأندرويد يطلق هذا الحدث تلقائياً
+// لما يتأكد إن الموقع قابل للتثبيت — نمنع البانر الافتراضي ونعرض بانرنا المخصص بدلاً منه
+window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
-  const reason = document.getElementById('ban-reason').value.trim();
-  await DB.adminSetBan(banTargetUserId, true, reason);
-  closeBanModal();
-  showToast('🚫', 'تم حظر الحساب.');
-  renderMain();
+  deferredInstallPrompt = e;
+  maybeShowInstallBanner();
+});
+window.addEventListener('appinstalled', () => {
+  hideInstallBanner();
+  deferredInstallPrompt = null;
+});
+
+function maybeShowInstallBanner(){
+  if(isStandaloneApp()) return; // مثبت أصلاً
+  if(localStorage.getItem(INSTALL_DISMISS_KEY)) return; // المستخدم سكّرها قبل
+  document.getElementById('installBanner').style.display = 'flex';
+}
+function hideInstallBanner(){
+  const el = document.getElementById('installBanner');
+  if(el) el.style.display = 'none';
+}
+function dismissInstallBanner(){
+  hideInstallBanner();
+  try{ localStorage.setItem(INSTALL_DISMISS_KEY, '1'); }catch(e){}
+}
+async function handleInstallClick(){
+  if(deferredInstallPrompt){
+    // أندرويد/سامسونج/كروم: نطلب نافذة التثبيت الأصلية من المتصفح نفسه
+    deferredInstallPrompt.prompt();
+    const choice = await deferredInstallPrompt.userChoice;
+    deferredInstallPrompt = null;
+    hideInstallBanner();
+    if(choice && choice.outcome === 'accepted'){ toast('✅ جاري تثبيت التطبيق'); }
+  } else if(isIOSDevice()){
+    // آيفون: ما فيه API تلقائي، نعرض خطوات الإضافة اليدوية من Safari
+    openIosInstallModal();
+  } else {
+    toast('افتح الموقع من متصفح Safari (آيفون) أو Chrome (أندرويد) للتثبيت');
+  }
+}
+function openIosInstallModal(){
+  document.getElementById('iosInstallOverlay').classList.add('show');
+  document.getElementById('iosInstallModal').classList.add('show');
+}
+function closeIosInstallModal(){
+  document.getElementById('iosInstallOverlay').classList.remove('show');
+  document.getElementById('iosInstallModal').classList.remove('show');
 }
 
-async function unbanUser(userId) {
-  await DB.adminSetBan(userId, false, null);
-  showToast('✅', 'تم فك الحظر.');
-  renderMain();
-}
-
-/* ============================================================
-   TOASTS / THEME
-   ============================================================ */
-function showToast(icon, message) {
-  const container = document.getElementById('toast-container');
-  const toast = document.createElement('div');
-  toast.className = 'toast';
-  toast.innerHTML = `<span>${icon}</span><span>${escapeHtml(message)}</span>`;
-  container.appendChild(toast);
-  setTimeout(() => { toast.classList.add('leaving'); setTimeout(() => toast.remove(), 260); }, 2800);
-}
-
-function applyTheme(theme) {
-  document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
-  const icon = theme === 'dark' ? '☀️' : '🌙';
-  ['theme-toggle-app', 'theme-toggle-auth', 'theme-toggle-mobile'].forEach(id => { const el = document.getElementById(id); if (el) el.textContent = icon; });
-}
-function toggleTheme() {
-  const next = (localStorage.getItem('feel_theme') || 'light') === 'dark' ? 'light' : 'dark';
-  localStorage.setItem('feel_theme', next);
-  applyTheme(next);
-}
-
-/* ============================================================
-   EVENT BINDING
-   ============================================================ */
-function bindStaticEvents() {
-  document.querySelectorAll('.auth-tab').forEach(tab => tab.addEventListener('click', () => switchAuthTab(tab.dataset.tab)));
-  document.getElementById('login-form').addEventListener('submit', handleLogin);
-  document.getElementById('signup-form').addEventListener('submit', handleSignup);
-  document.getElementById('theme-toggle-auth').addEventListener('click', toggleTheme);
-  document.getElementById('theme-toggle-app').addEventListener('click', toggleTheme);
-  document.getElementById('theme-toggle-mobile').addEventListener('click', toggleTheme);
-  document.getElementById('logout-btn').addEventListener('click', logout);
-  document.getElementById('switch-account-btn').addEventListener('click', openAccountSwitcher);
-
-  document.getElementById('tip-close').addEventListener('click', closeTipModal);
-  document.getElementById('tip-overlay').addEventListener('click', e => { if (e.target.id === 'tip-overlay') closeTipModal(); });
-  document.getElementById('tip-grid').addEventListener('click', e => { const btn = e.target.closest('.tip-option'); if (btn) sendTip(btn.dataset.tip); });
-
-  document.getElementById('levelup-close').addEventListener('click', closeLevelUp);
-  document.getElementById('ban-close').addEventListener('click', closeBanModal);
-  document.getElementById('ban-overlay').addEventListener('click', e => { if (e.target.id === 'ban-overlay') closeBanModal(); });
-  document.getElementById('ban-form').addEventListener('submit', confirmBan);
-
-  document.addEventListener('click', e => {
-    const navEl = e.target.closest('[data-nav]');
-    if (navEl) { navigateTo(navEl.dataset.nav); return; }
-
-    const actionEl = e.target.closest('[data-action]');
-    if (!actionEl) return;
-    const action = actionEl.dataset.action;
-
-    switch (action) {
-      case 'open-feeling': navigateTo('feeling-detail', { activeFeelingId: actionEl.dataset.feeling }); break;
-      case 'open-question': navigateTo('question-detail', { activeQuestionId: actionEl.dataset.qid, returnRoute: AppState.route, returnFeelingId: AppState.activeFeelingId }); break;
-      case 'go-back': navigateTo(AppState.returnRoute || 'questions', { activeFeelingId: AppState.returnFeelingId }); break;
-      case 'focus-composer': { const el = document.getElementById('compose-textarea'); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); el.focus(); } break; }
-      case 'like-question': e.stopPropagation(); toggleLikeQuestion(actionEl.dataset.qid).then(renderMain); break;
-      case 'like-answer': e.stopPropagation(); toggleLikeAnswer(actionEl.dataset.aid).then(renderMain); break;
-      case 'open-tip': e.stopPropagation(); openTipModal(actionEl.dataset.qid, actionEl.dataset.aid); break;
-      case 'submit-answer': submitAnswer(actionEl.dataset.qid); break;
-      case 'filter': AppState.feelingFilter = actionEl.dataset.filter; renderMain(); break;
-      case 'scope': AppState.questionsScope = actionEl.dataset.scope; renderMain(); break;
-      case 'like-post': togglePostLike(actionEl.dataset.pid); break;
-      case 'toggle-comments': togglePostComments(actionEl.dataset.pid); break;
-      case 'admin-ban': openBanModal(actionEl.dataset.uid, actionEl.dataset.name); break;
-      case 'admin-unban': unbanUser(actionEl.dataset.uid); break;
-      case 'delete-question': e.stopPropagation(); deleteQuestionHandler(actionEl.dataset.qid); break;
-      case 'delete-answer': e.stopPropagation(); deleteAnswerHandler(actionEl.dataset.aid); break;
-      case 'delete-post': e.stopPropagation(); deletePostHandler(actionEl.dataset.pid); break;
-      case 'delete-comment': e.stopPropagation(); deleteCommentHandler(actionEl.dataset.cid, actionEl.dataset.pid); break;
-      case 'switch-account': switchToAccount(actionEl.dataset.uid); break;
-      case 'forget-account': e.stopPropagation(); forgetSavedAccount(actionEl.dataset.uid); break;
-      case 'open-notification': { let p = {}; try { p = JSON.parse(actionEl.dataset.params || '{}'); } catch (err) {} navigateTo(actionEl.dataset.route, p); break; }
-    }
-  });
-
-  document.getElementById('main-content').addEventListener('submit', e => {
-    if (e.target.id === 'compose-form') submitComposedQuestion(e);
-    if (e.target.id === 'post-form') submitPost(e);
-    if (e.target.classList.contains('comment-form')) { e.preventDefault(); submitComment(e.target); }
-  });
-
-  document.getElementById('main-content').addEventListener('input', e => {
-    if (e.target.id === 'search-input') {
-      AppState.searchQuery = e.target.value;
-      renderMain().then(() => {
-        const input = document.getElementById('search-input');
-        if (input) { input.focus(); input.setSelectionRange(input.value.length, input.value.length); }
-      });
-    }
-  });
-
-  document.addEventListener('keydown', e => {
-    if (e.key !== 'Escape') return;
-    closeTipModal(); closeLevelUp(); closeBanModal();
-  });
+// آيفون ما يطلق beforeinstallprompt أبداً — نعرضله بانرنا يدوياً بعد ثانيتين من فتح الصفحة
+if(isIOSDevice() && !isStandaloneApp() && !localStorage.getItem(INSTALL_DISMISS_KEY)){
+  setTimeout(maybeShowInstallBanner, 1500);
 }
