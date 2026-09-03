@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>مودولا — 86 وحدة سكنية جاهزة بمجسّمات ثلاثية الأبعاد</title>
+<meta name="description" content="كبسولات فضائية، بيوت قابلة للتوسيع والطي، وحدات معيارية ومبانٍ متكاملة. تصفّح 86 وحدة بأبعادها الحقيقية ومجسّم ثلاثي الأبعاد لكل وحدة، واطلب عرض سعر على واتساب.">
+<link rel="stylesheet" href="assets/fonts.css">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<header class="hdr" id="hdr">
+  <a href="index.html" class="brand"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="9" width="9" height="13"/><rect x="13" y="2" width="9" height="20"/></svg><span>مودو<b>لا</b></span></a>
+  <div class="hdr-act">
+    <button class="sel-btn" id="selBtn" hidden>اختياراتي <b id="selN">0</b></button>
+    <a class="wa-top" id="waTop" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1s-.7 1-.9 1.2c-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2"/></svg> واتساب</a>
+  </div>
+</header>
+<section class="hero" id="top">
+  <div class="hero-bg" id="heroBg"><img src="assets/img/image34.webp" alt="وحدة سكنية جاهزة" fetchpriority="high"></div>
+  <div class="hero-in">
+    <h1><span><i>وحدات سكنية</i></span><span><i>جاهزة للسكن</i></span></h1>
+    <p class="hero-sub">كبسولات، بيوت قابلة للتوسيع والطي، وحدات معيارية ومبانٍ متكاملة — مصنّعة بالكامل في المصنع وتُركَّب في موقعك خلال أيام.</p>
+    <div class="hero-cta">
+      <a href="#catalog" class="btn btn-brass">تصفّح 86 وحدة</a>
+      <a href="#story" class="btn btn-ghost">كيف تُصنع</a>
+    </div>
+  </div>
+  <dl class="rail">
+    <div><dt>وحدة متاحة</dt><dd data-count="86">0</dd></div>
+    <div><dt>أنواع البناء</dt><dd data-count="6">0</dd></div>
+    <div><dt>المساحات (م²)</dt><dd>12.5–2789.9</dd></div>
+    <div><dt>التركيب في الموقع (أيام)</dt><dd data-count="7">0</dd></div>
+  </dl>
+</section>
+
+<section class="story" id="story">
+  <div class="story-in">
+    <div class="story-txt">
+      <h2>كيف تصل الوحدة إليك</h2>
+      <p class="story-lead">أربع مراحل من خط الإنتاج إلى موقعك. المجسّم إلى الجانب بأبعاد وحدة فعلية — اسحبه لتدويره.</p>
+      <ol class="story-list"><li><h3>التصنيع في المصنع</h3><p>الهيكل والعزل والتمديدات الكهربائية والصحية تُنفَّذ كلها داخل المصنع تحت سقف واحد، بعيداً عن الطقس والتأخير. الوحدة تخرج مكتملة ومختبَرة.</p></li><li><h3>أبعاد مضبوطة</h3><p>كل وحدة مصمّمة على مقاس الحاوية القياسية. الأبعاد التي تراها هنا هي أبعاد التصنيع الفعلية، وعليها يُحسب الشحن والتأسيس في الموقع.</p></li><li><h3>الشحن البحري</h3><p>الوحدة تُثبَّت في حاوية 40 قدماً وتُشحن بحراً. المسار من المصنع إلى الميناء إلى موقعك مخطَّط قبل بدء التصنيع.</p></li><li><h3>التركيب في الموقع</h3><p>قاعدة خرسانية أو ركائز، ثم إنزال الوحدة بالرافعة وتوصيل الماء والكهرباء والصرف. الوحدة الواحدة تجهز في يوم.</p></li></ol>
+    </div>
+    <div class="story-stage">
+      <canvas id="storyCanvas"></canvas>
+      <div class="story-tools" id="storyTools">
+        <button data-v="iso" class="on">منظور</button>
+        <button data-v="front">أمامي</button>
+        <button data-v="side">جانبي</button>
+        <button data-v="top">علوي</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="cats" id="cats">
+  <div class="cats-hd">
+    <h2>ستة أنواع بناء</h2>
+    <p>لكل نوع طريقة تصنيع ونقل وتركيب مختلفة. اختر ما يناسب موقعك وميزانيتك ومدة التنفيذ لديك.</p>
+  </div>
+  <div class="cats-track" id="catsTrack"><figure class="cat-card"><img src="assets/img/image26.webp" alt="كبسولة فضائية" loading="lazy"><figcaption><h3>كبسولة فضائية</h3><span>32 وحدة · وحدة واحدة تصل مكتملة التشطيب، تُنزل بالرافعة وتُوصل بالخدمات.</span></figcaption></figure><figure class="cat-card"><img src="assets/img/image101.webp" alt="قابل للتوسيع" loading="lazy"><figcaption><h3>قابل للتوسيع</h3><span>13 وحدة · تُشحن مطوية بحجم حاوية، وتُفتح في الموقع خلال ساعة.</span></figcaption></figure><figure class="cat-card"><img src="assets/img/image21.webp" alt="وحدة معيارية" loading="lazy"><figcaption><h3>وحدة معيارية</h3><span>15 وحدة · وحدات تُجمّع في الموقع لتكوين مساحات أكبر بمرونة في التوزيع.</span></figcaption></figure><figure class="cat-card"><img src="assets/img/image59.webp" alt="قبة زجاجية" loading="lazy"><figcaption><h3>قبة زجاجية</h3><span>2 وحدة · قبة زجاجية للمنتجعات والمخيمات الفاخرة، بإطلالة كاملة.</span></figcaption></figure><figure class="cat-card"><img src="assets/img/image100.webp" alt="مبنى متكامل" loading="lazy"><figcaption><h3>مبنى متكامل</h3><span>22 وحدة · مبانٍ متعددة الطوابق: فنادق، عيادات، مكاتب ومدارس.</span></figcaption></figure><figure class="cat-card"><img src="assets/img/image15.webp" alt="قابل للطي" loading="lazy"><figcaption><h3>قابل للطي</h3><span>2 وحدة · هيكل قابل للطي، الأسرع في النقل والتخزين.</span></figcaption></figure></div>
+</section>
+
+<section class="sec" id="catalog" style="padding-bottom:0">
+  <div class="sec-hd"><h2>اختر وحدتك</h2>
+    <p>فلتر حسب النوع والمساحة، وافتح أي وحدة لترى مجسّمها ثلاثي الأبعاد بأبعادها الحقيقية — ثم أرسل اختياراتك دفعة واحدة على واتساب.</p>
+  </div>
+</section>
+
+<div class="catalog-wrap">
+  <div class="filters">
+    <div class="f-row">
+      <div class="chips" id="chips">
+        <button class="chip on" data-cat="all">الكل<span>86</span></button><button class="chip" data-cat="capsule">كبسولة فضائية<span>32</span></button><button class="chip" data-cat="expandable">قابل للتوسيع<span>13</span></button><button class="chip" data-cat="modular">وحدة معيارية<span>15</span></button><button class="chip" data-cat="dome">قبة زجاجية<span>2</span></button><button class="chip" data-cat="project">مبنى متكامل<span>22</span></button><button class="chip" data-cat="foldable">قابل للطي<span>2</span></button>
+      </div>
+    </div>
+    <div class="f-row" style="margin-top:10px">
+      <div class="f-tool">
+        <div class="field"><label for="area">المساحة حتى</label>
+          <input type="range" id="area" min="0" max="11" value="11" step="1">
+          <output id="areaOut">الكل</output></div>
+        <label class="toggle"><input type="checkbox" id="c40">يدخل في حاوية 40 قدم</label>
+        <div class="field"><label for="sort">ترتيب</label>
+          <select id="sort"><option value="def">افتراضي</option>
+            <option value="asc">المساحة: الأصغر أولاً</option>
+            <option value="desc">المساحة: الأكبر أولاً</option></select></div>
+      </div>
+      <p class="f-count"><b id="cnt">86</b> وحدة</p>
+    </div>
+  </div>
+  <div class="grid" id="grid"></div>
+</div>
+
+<section class="mat"><div class="sec">
+  <div class="sec-hd"><h2>أي مادة تناسب مشروعك</h2>
+    <p>الفرق الحقيقي بين الأنواع ليس السعر فقط — بل العمر الافتراضي وإمكانية النقل بعد التركيب.</p></div>
+  <div class="mat-wrap"><table>
+    <thead><tr><th>المادة</th><th>المزايا</th><th>ما يجب معرفته</th><th>العمر الافتراضي</th></tr></thead>
+    <tbody><tr><th scope="row">هيكل فولاذي</th><td>جودة أعلى ومظهر متين</td><td>لا يمكن نقله بعد التركيب، سعر أعلى، مدة تنفيذ أطول</td><td class="life">50 سنة</td></tr><tr><th scope="row">فولاذ + ألواح ساندويتش</th><td>السعر الأقل وأسرع تركيب</td><td>يبدأ مظهره بالتقادم بعد 10 سنوات</td><td class="life">15 سنة</td></tr><tr><th scope="row">فولاذ + ألواح إسمنتية</th><td>جودة عالية ومظهر ممتاز مع سهولة التركيب</td><td>لا يمكن نقله بعد التركيب، سعر أعلى</td><td class="life">70 سنة</td></tr></tbody></table></div>
+</div></section>
+
+<section id="how"><div class="contact">
+  <div><h2>من الاختيار إلى التسليم</h2>
+    <p>أرسل لنا اختياراتك على واتساب، ونرجع لك بعرض سعر شامل الشحن والتركيب حسب موقعك.</p>
+    <div style="margin-top:26px"><a class="btn btn-wa" id="waMain" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1s-.7 1-.9 1.2c-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2"/></svg> ابدأ المحادثة</a></div>
+  </div>
+  <div class="steps"><div class="step"><span class="step-n">1</span><div><h3>اختر الوحدات</h3><p>أضف ما يناسبك إلى قائمة اختياراتك — بدون حد أقصى.</p></div></div><div class="step"><span class="step-n">2</span><div><h3>أرسلها على واتساب</h3><p>تصل الرسالة بأرقام مرجعية ومساحات، فنعرف تماماً ما تريد.</p></div></div><div class="step"><span class="step-n">3</span><div><h3>عرض سعر خلال 24 ساعة</h3><p>شامل الشحن البحري والتركيب في موقعك.</p></div></div><div class="step"><span class="step-n">4</span><div><h3>التصنيع والشحن</h3><p>التصنيع 20–45 يوماً حسب النوع، ثم الشحن والتركيب.</p></div></div></div>
+</div></section>
+<footer>
+  <div class="foot-in">
+    <a href="index.html" class="brand"><svg class="mark" viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="9" width="9" height="13"/><rect x="13" y="2" width="9" height="20"/></svg><span>مودو<b>لا</b></span></a>
+    <span>وحدات سكنية جاهزة · تصنيع وتوريد وتركيب</span>
+    <a id="waFoot" href="#" target="_blank" rel="noopener">تواصل على واتساب</a>
+  </div>
+</footer>
+<a class="fab" id="fab" href="#" target="_blank" rel="noopener" aria-label="تواصل على واتساب"><svg viewBox="0 0 24 24"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1s-.7 1-.9 1.2c-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2"/></svg></a>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="اختياراتي">
+  <div class="dr-hd"><h2>اختياراتي</h2>
+    <button class="x" id="drX" aria-label="إغلاق"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="dr-list" id="drList"></div>
+  <div class="dr-foot">
+    <a class="btn btn-wa" id="drSend" href="#" target="_blank" rel="noopener"><svg viewBox="0 0 24 24"><path d="M17.5 14.4c-.3-.2-1.7-.9-2-1-.3-.1-.5-.2-.7.1s-.7 1-.9 1.2c-.2.2-.3.2-.6.1-.3-.2-1.2-.5-2.3-1.4-.9-.8-1.4-1.7-1.6-2-.2-.3 0-.5.1-.6l.5-.5c.1-.2.2-.3.3-.5 0-.2 0-.4 0-.5 0-.2-.7-1.6-.9-2.2-.2-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.8.4-.3.3-1 1-1 2.5s1.1 2.9 1.2 3.1c.2.2 2.1 3.2 5.1 4.5.7.3 1.3.5 1.7.6.7.2 1.4.2 1.9.1.6-.1 1.7-.7 2-1.4.2-.7.2-1.3.2-1.4-.1-.2-.3-.3-.6-.4M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2"/></svg> أرسل الاختيارات على واتساب</a>
+  </div>
+</aside>
+<div class="toast" id="toast"></div>
+<script>var CFG={whatsapp:"965XXXXXXXX",brand:"مودولا",home:"index.html",img:function(n,t){return "assets/img/"+n+(t?"_t":"")+".webp";},unitPath:function(r){return "unit/"+r+".html";}};</script>
+<script src="assets/data.js"></script>
+<script src="assets/three.min.js"></script>
+<script src="assets/gltf-loader.min.js"></script>
+<script src="assets/viewer.js"></script>
+<script src="assets/app.js"></script>
+<script>initChrome();initHome();</script>
+</body></html>
